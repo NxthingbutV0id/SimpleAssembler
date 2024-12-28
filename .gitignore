@@ -1,2 +1,7 @@
 /target
-/fibbonaci.bin
+/test_data/fibbonaci.bin
+/test_data/fibbonaci.asm
+/test_data/out.bin
+/test_data/test_assembly.asm
+/test_data/tetris_actual.bin
+/test_data/tetris_expected.bin
