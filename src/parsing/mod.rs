@@ -1,7 +1,9 @@
 use std::{fs, io};
+use std::path::Path;
+use custom_error::custom_error;
 use crate::symbols::instruction::Instruction;
-use crate::parsing::parsers::{parse_labels, parse_definitions, parse_instruction};
-use crate::parsing::helper::skip;
+use crate::parsing::parsers::parse_program;
+use crate::symbols::opcodes::Opcode;
 
 pub(crate) mod parsers;
 pub(crate) mod helper;
@@ -33,52 +35,61 @@ const KEYWORDS: [&str; 76] = [
     "rng", "controller_input"
 ];
 
-pub struct AssemblyParser {
-    current_input: Option<String>,
-    current_file: Option<String>,
-    current_content: Option<String>,
-    pub program: Vec<Instruction>
+custom_error! {pub ParsingError
+    FileNotFound = "File not found",
+    InvalidFile = "Invalid file",
+    InvalidExtension = "Invalid file extension",
+    NoInstructions = "No instructions found in file"
 }
 
-impl AssemblyParser {
-    pub fn new() -> AssemblyParser {
-        AssemblyParser {
-            current_input: None,
-            current_file: None,
-            current_content: None,
-            program: Vec::new()
-        }
+pub fn parse_file(file: &str) -> Result<Vec<Instruction>, io::Error> {
+    info!("Parsing {}...", file);
+    let path = Path::new(file);
+    if !path.exists() {
+        error!("File not found: {}", file);
+        return Err(io::Error::new(io::ErrorKind::NotFound, ParsingError::FileNotFound));
     }
 
-    pub fn parse_file(&mut self, file: &str) -> Result<(), io::Error> {
-        info!("Parsing {}...", file);
-        self.current_file = Some(file.to_string());
-        self.current_input = Some(fs::read_to_string(file)?);
-        self.current_content = Some(self.current_input.clone().unwrap());
-        self.parse_program();
-        self.current_file = None;
-        self.current_input = None;
-        self.current_content = None;
-        trace!("Finished parsing file: {}", file);
-        Ok(())
+    if !path.is_file() {
+        error!("Not a file: {}", file);
+        return Err(io::Error::new(io::ErrorKind::NotFound, ParsingError::InvalidFile));
     }
 
-    fn parse_program(&mut self) {
-        let binding = self.current_input.clone().unwrap();
-        let mut input: &str = binding.as_str();
-        let mut line = 0;
+    if path.extension().unwrap() != "asm" &&
+        path.extension().unwrap() != "as" &&
+        path.extension().unwrap() != "s" {
+        error!("Not an assembly file (.asm/.as/.s): {:?}", path.extension().unwrap());
+        return Err(io::Error::new(io::ErrorKind::NotFound, ParsingError::InvalidExtension));
+    }
 
-        (input, _) = skip(input).unwrap();
-        while !input.is_empty() {
-            let (rest, instruction) = parse_labels(input)
-                .or_else(|_| parse_definitions(input))
-                .or_else(|_| parse_instruction(input))
-                .expect("Failed to parse instruction");
-            trace!("Parsed instruction: {:5}: {}", line, instruction);
-            self.program.push(instruction);
-            input = rest;
-            (input, _) = skip(input).unwrap();
-            line += 1;
+
+    let input = fs::read_to_string(path);
+    match input {
+        Ok(input) => {
+            if input.is_empty() {
+                warn!("File is empty: {}", file);
+                return Ok(Vec::new());
+            }
+
+            let program = parse_program(&input)
+                .expect("Failed to parse program").1;
+
+            trace!("Finished parsing file: {}", file);
+            if program.is_empty() {
+                warn!("No instructions found in file: {}", file);
+                return Ok(Vec::new());
+            }
+
+            for instruction in program.iter() {
+                if instruction.opcode != Opcode::_Label && instruction.opcode != Opcode::_Definition {
+                    return Ok(program);
+                }
+            }
+            Err(io::Error::new(io::ErrorKind::NotFound, ParsingError::NoInstructions))
+        },
+        Err(e) => {
+            error!("Failed to read file: {}", file);
+            Err(e)
         }
     }
 }

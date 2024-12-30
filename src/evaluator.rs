@@ -14,8 +14,8 @@ pub fn evaluate_program(program: &mut Vec<Instruction>) {
 
 fn find_definitions(program: &Vec<Instruction>) -> HashMap<String, i16> {
     let mut defined: HashMap<String, i16> = HashMap::new();
-    for i in 0..program.len() {
-        let instruction = &program[i];
+    for instruction in program.iter() {
+        //let instruction = &program[i];
         if let Opcode::_Definition = instruction.opcode {
             if let Operand::Definition(def) = &instruction.operands[0] {
                 let imm = def.value.expect("Definition value missing");

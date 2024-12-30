@@ -33,10 +33,6 @@ impl Definition {
             value: None
         }
     }
-
-    pub fn set_value(&mut self, value: i16) {
-        self.value = Some(value);
-    }
 }
 
 impl Display for Definition {

@@ -4,4 +4,4 @@
 /test_data/out.bin
 /test_data/test_assembly.asm
 /test_data/tetris_actual.bin
-/test_data/tetris_expected.bin
+/test_data/compare/tetris_expected.bin

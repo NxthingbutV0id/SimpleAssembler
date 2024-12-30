@@ -41,7 +41,7 @@ impl AssemblyPrinter {
         if let Some(encoding) = encoding {
             self.emit(&format!(" {:016b} |", encoding));
         } else {
-            self.emit(" ---------7------ |");
+            self.emit(" ---------------- |");
         }
         self.print_opcode(opcode);
         self.print_operands(operands);

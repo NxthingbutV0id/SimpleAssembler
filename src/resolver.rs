@@ -1,60 +1,58 @@
 use std::collections::HashMap;
+use custom_error::custom_error;
 use crate::symbols::instruction::Instruction;
 use crate::symbols::opcodes::Opcode::_Label;
 use crate::symbols::operands::{Operand};
 
-pub struct Resolver {
-    pub labels: HashMap<String, Instruction>,
+custom_error! {pub ResolveError
+    LabelNotFound{name:String} = "Label .{name} not found in program",
+    LabelAlreadyDefined{name:String} = "Label .{name} already defined",
+    MissingAddress{instruction:Instruction} = "Instruction {instruction} is missing address"
 }
 
-impl Resolver {
-    pub fn new() -> Resolver {
-        Resolver {
-            labels: HashMap::new(),
+pub fn resolve_program(program: &mut Vec<Instruction>) -> Result<(), ResolveError> {
+    let mut labels: HashMap<String, Instruction> = HashMap::new();
+    info!("Resolving program...");
+    for i in 0..program.len() {
+        if program[i].opcode == _Label {
+            let label: String = program[i].operands[0].to_string();
+            if labels.contains_key(&label) {
+                return Err(ResolveError::LabelAlreadyDefined { name: label });
+            }
+
+            trace!("Found label at address {:04X}: .{}", program[i].clone().address.unwrap(), label);
+
+            if program[i].address.is_none() {
+                return Err(ResolveError::MissingAddress { instruction: program[i].clone() });
+            }
+
+            labels.insert(label, program[i].clone());
         }
     }
+    trace!("All {} labels found", labels.len());
+    trace!("Labels: {:?}", labels.keys());
+    trace!("Binding labels to offsets");
 
-    pub fn resolve_program(&mut self, program: &mut Vec<Instruction>) {
-        info!("Resolving program...");
-        for i in 0..program.len() {
-            if program[i].opcode == _Label {
-                let label: String = program[i].operands[0].to_string();
-                if self.labels.contains_key(&label) {
-                    error!("Label .{} already defined", label);
-                    panic!();
-                }
-
-                trace!("Found label at address {:04X}: .{}", program[i].clone().address.unwrap(), label);
-                self.labels.insert(label, program[i].clone());
-            }
+    for i in 0..program.len() {
+        if program[i].opcode == _Label {
+            continue;
         }
-        trace!("All labels found");
-        trace!("Labels: {:?}", self.labels.keys());
-        trace!("Binding labels to offsets");
-
-        for i in 0..program.len() {
-            if program[i].opcode == _Label {
-                trace!("Skipping label definition");
-                continue;
-            }
-            for j in 0..program[i].operands.len() {
-                let operand = &mut program[i].operands[j];
-                if let Operand::Offset(offset) = operand {
-                    let label_inst = self.labels.get(&offset.name);
-                    if label_inst.is_some() {
-                        if label_inst.unwrap().address.is_none() {
-                            error!("Instruction {} is missing address, skipping", label_inst.unwrap());
-                            continue;
-                        }
-                        trace!("Found binding: .{}", offset.name);
-                        offset.binding = Some(label_inst.unwrap().clone());
-                    } else {
-                        error!("Label .{} not found", offset.name);
-                        panic!("LabelNotFound");
+        for j in 0..program[i].operands.len() {
+            let operand = &mut program[i].operands[j];
+            if let Operand::Offset(offset) = operand {
+                let label_inst = labels.get(&offset.name);
+                if label_inst.is_some() {
+                    if label_inst.unwrap().address.is_none() {
+                        return Err(ResolveError::MissingAddress { instruction: label_inst.unwrap().clone() } );
                     }
+                    trace!("Found binding: .{}", offset.name);
+                    offset.binding = Some(label_inst.unwrap().clone());
+                } else {
+                    return Err(ResolveError::LabelNotFound { name: offset.name.clone() });
                 }
             }
         }
-        trace!("Program resolved");
     }
+    trace!("All {} offsets bound", labels.len());
+    Ok(())
 }

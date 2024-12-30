@@ -6,26 +6,22 @@ mod symbols;
 mod resolver;
 mod evaluator;
 mod parsing;
+mod tests;
 
 use clap::Parser;
-use std::{fs, io};
+use std::fs;
 use std::path::Path;
-use nom::bytes::complete::take;
+use anyhow::Error;
 use crate::cli::CLI;
 use crate::encoder::InstructionEncoder;
-use crate::layout::Layout;
-use parsing::AssemblyParser;
-use parsing::helper::ws;
 use crate::printer::AssemblyPrinter;
-use crate::resolver::Resolver;
 use crate::symbols::instruction::Instruction;
 
 extern crate pretty_env_logger;
 #[macro_use] extern crate log;
 
 // NOTE: This whole thing is based off of mattbatwing's minecraft CPU
-// This took so fucking long to get working, I'm so happy it's finally done
-fn main() -> io::Result<()> {
+fn main() -> anyhow::Result<()> {
     let args = CLI::parse();
 
     if args.debug {
@@ -35,40 +31,68 @@ fn main() -> io::Result<()> {
     }
 
     pretty_env_logger::init();
+    let mut program: Vec<Instruction> = Vec::new();
 
-    let mut parser = AssemblyParser::new();
     for file in args.input_files {
-        parser.parse_file(&file)?;
+        // there could be multiple .asm files, but we compile to one binary
+        let code = parsing::parse_file(&file);
+        match code {
+            Ok(code) => {
+                program.extend(code);
+            },
+            Err(e) => {
+                error!("Failed to parse file: {}", file);
+                return Err(Error::from(e));
+            }
+        }
     }
 
-    let mut layout = Layout::new();
-    layout.layout_program(&mut parser.program);
+    layout::layout_program(&mut program);
 
-    let mut resolver = Resolver::new();
-    resolver.resolve_program(&mut parser.program);
+    let test = resolver::resolve_program(&mut program);
+    match test {
+        Ok(_) => {
+            debug!("Program resolved successfully");
+        },
+        Err(e) => {
+            error!("Failed to resolve program");
+            return Err(Error::from(e));
+        }
+    }
 
-    evaluator::evaluate_program(&mut parser.program);
+    info!("Evaluating program...");
+    evaluator::evaluate_program(&mut program);
 
     let mut encoder = InstructionEncoder::new();
-    encoder.encode_program(&mut parser.program);
+    // Mutates the Instructions in the Vec<Instruction>
+    let test = encoder.encode_program(&mut program);
+    if test.is_err() {
+        error!("Failed to encode program");
+        return Err(Error::from(test.err().unwrap()));
+    }
+
     if args.print_assembly {
-        let mut printer = AssemblyPrinter::new(&parser.program);
+        // Reads from the Vec<Instruction>
+        let mut printer = AssemblyPrinter::new(&program);
         info!("Printing assembly: \n{}", printer.print());
     }
 
-    let binary: Vec<u8> = convert_program_to_bytes(&parser.program, args.size);
+    // Takes the Vec<Instruction> since it's not needed after this point
+    let binary: Vec<u8> = convert_program_to_bytes(program, args.size);
 
     if args.output.is_some() {
         info!("Writing output file...");
         let output = args.output.clone().unwrap();
-        fs::write(&output, &binary)?;
-        let expected = convert_mc_to_bin("test_data/tetris.mc");
-        fs::write("test_data/tetris_expected.bin", &expected)?;
+        let test = fs::write(&output, &binary);
+        if test.is_err() {
+            error!("Failed to write output file");
+            return Err(Error::from(test.err().unwrap()));
+        }
         info!("Output file written to {}", Path::new(&output).display());
     }
 
     if args.print_binary || args.output.is_none() {
-        info!("Printing binary...");
+        info!("Printing hex dump...");
         for (i, byte) in binary.iter().enumerate() {
             if i % 16 == 0 {
                 print!("\n{:04X} | ", i);
@@ -83,7 +107,7 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
-fn convert_program_to_bytes(program: &Vec<Instruction>, size: Option<u16>) -> Vec<u8> {
+fn convert_program_to_bytes(program: Vec<Instruction>, size: Option<u16>) -> Vec<u8> {
     debug!("Creating binary");
     let mut binary: Vec<u8> = if size.is_some() {
         Vec::with_capacity(size.unwrap() as usize)
@@ -110,27 +134,5 @@ fn convert_program_to_bytes(program: &Vec<Instruction>, size: Option<u16>) -> Ve
     }
 
     trace!("Binary created");
-    binary
-}
-
-fn convert_mc_to_bin(file: &str) -> Vec<u8> {
-    let binding = fs::read_to_string(file)
-        .expect("Failed to read input file");
-    let mut file: &str = binding.as_str();
-    let mut binary: Vec<u8> = Vec::new();
-
-    while !file.is_empty() {
-        let (rest, mc) = ws(take::<usize, &str, ()>(16usize))(file)
-            .expect("Failed to take 16 bits");
-        let bytes: u16 = u16::from_str_radix(mc, 2)
-            .expect("Failed to convert machine code to byte");
-
-        let lo: u8 = (bytes & 0xFF) as u8;
-        let hi: u8 = (bytes >> 8) as u8;
-        binary.push(lo);
-        binary.push(hi);
-        file = rest;
-    }
-
     binary
 }
