@@ -1,5 +1,3 @@
-use super::*;
-use nom::error::VerboseError;
 use crate::parsing::parsers::*;
 use crate::symbols::operands::Operand;
 
@@ -15,7 +13,7 @@ fn test_parse_labels() {
 
 #[test]
 fn test_parse_definitions() {
-    let input = "define MY_CONST 10\r\n"; // TODO: finish writing these fucking test...
+    let input = "define MY_CONST 10\r\n";
     let result = parse_definitions(input);
     assert!(result.is_ok(), "Failed to parse valid definition");
 }

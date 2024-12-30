@@ -1,8 +1,10 @@
-use std::{fs, io};
+use std::fs;
 use std::path::Path;
+use anyhow::Error;
 use custom_error::custom_error;
 use crate::symbols::instruction::Instruction;
 use crate::parsing::parsers::parse_program;
+use crate::parsing::ParsingError::*;
 use crate::symbols::opcodes::Opcode;
 
 pub(crate) mod parsers;
@@ -42,24 +44,24 @@ custom_error! {pub ParsingError
     NoInstructions = "No instructions found in file"
 }
 
-pub fn parse_file(file: &str) -> Result<Vec<Instruction>, io::Error> {
+pub fn parse_file(file: &str) -> anyhow::Result<Vec<Instruction>> {
     info!("Parsing {}...", file);
     let path = Path::new(file);
     if !path.exists() {
         error!("File not found: {}", file);
-        return Err(io::Error::new(io::ErrorKind::NotFound, ParsingError::FileNotFound));
+        return Err(Error::from(FileNotFound));
     }
 
     if !path.is_file() {
         error!("Not a file: {}", file);
-        return Err(io::Error::new(io::ErrorKind::NotFound, ParsingError::InvalidFile));
+        return Err(Error::from(InvalidFile));
     }
 
     if path.extension().unwrap() != "asm" &&
         path.extension().unwrap() != "as" &&
         path.extension().unwrap() != "s" {
         error!("Not an assembly file (.asm/.as/.s): {:?}", path.extension().unwrap());
-        return Err(io::Error::new(io::ErrorKind::NotFound, ParsingError::InvalidExtension));
+        return Err(Error::from(InvalidExtension));
     }
 
 
@@ -85,11 +87,11 @@ pub fn parse_file(file: &str) -> Result<Vec<Instruction>, io::Error> {
                     return Ok(program);
                 }
             }
-            Err(io::Error::new(io::ErrorKind::NotFound, ParsingError::NoInstructions))
+            Err(Error::from(NoInstructions))
         },
         Err(e) => {
             error!("Failed to read file: {}", file);
-            Err(e)
+            Err(Error::from(e))
         }
     }
 }
