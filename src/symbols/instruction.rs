@@ -62,6 +62,10 @@ impl Instruction {
     pub fn add_address(&mut self, addr: Address) {
         self.add_operand(Operand::Address(addr));
     }
+    
+    pub fn add_character(&mut self, ch: char) {
+        self.add_operand(Operand::Character(ch));
+    }
 }
 
 impl Display for Instruction {

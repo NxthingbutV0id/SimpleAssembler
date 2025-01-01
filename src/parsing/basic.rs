@@ -7,6 +7,7 @@ use nom::{
     combinator::{opt, fail, recognize},
     sequence::{ delimited, pair },
 };
+use nom::combinator::eof;
 use crate::parsing::{
     KEYWORDS,
     helper::*
@@ -99,6 +100,7 @@ pub fn address(input: &str) -> Res<&str, Address> {
     match Address::new(value) { 
         Some(addr) => Ok((rest, addr)),
         None => {
+            eprintln!("Address out of bounds: {}", value);
             context("Address (Value out of bounds)", fail)(rest)
         }
     }
@@ -155,9 +157,9 @@ pub fn label(input: &str) -> Res<&str, &str> {
     context(
         "Label",
         delimited(
-            leading_ws_nonl(tag(".")),
+            tag("."),
             identifier,
-            multispace1
+            alt((eof, multispace1))
         )
     )(input)
 }

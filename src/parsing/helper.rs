@@ -26,18 +26,34 @@ use num::Integer;
 
 pub type Res<A, B> = IResult<A, B, VerboseError<A>>;
 
+pub fn comment_start(i: &str) -> Res<&str, &str> {
+    alt((
+        tag("//"), // C
+        tag(";"),  // Lisp
+        tag("#"),  // Python
+        tag("--"), // Ada
+        tag("%")   // Matlab
+    ))(i)
+}
+
 pub fn comment(i: &str) -> Res<&str, &str> {
     value(
         "",
         pair(
+            comment_start,
             alt((
-                tag("//"), // C
-                tag(";"),  // Lisp
-                tag("#"),  // Python
-                tag("--"), // Ada
-                tag("%")   // Matlab
-            )),
-            is_not("\n\r")
+                is_not("\n\r"),
+            ))
+        )
+    )(i)
+}
+
+pub fn weird_comment(i: &str) -> Res<&str, &str> {
+    value(
+        "",
+        pair(
+            comment_start,
+            tag("*/")
         )
     )(i)
 }
@@ -188,6 +204,10 @@ pub fn next_token(input: &str) -> Res<&str, ()> {
         alt((
             preceded(tag(","), space0), // is there a comma? skip it and any spaces
             space1,                     // else skip at least one space
+            comment,
+            comment_start,
+            //multiline_comment,
+            eof
         ))
     )(input)
 }

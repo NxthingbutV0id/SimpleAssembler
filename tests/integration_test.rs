@@ -86,7 +86,7 @@ fn cli_with_size() {
 }
 
 #[test]
-fn cli_with_print() {
+fn cli_with_print() { // TODO: This test fails as well as all the others
     let output = Command::new("cargo")
         .arg("run")
         .arg("--")
@@ -94,6 +94,7 @@ fn cli_with_print() {
         .arg(r".\test_data\print\tetris.asm")
         .arg("-v")
         .arg("-x")
+        .arg("-d")
         .output()
         .expect("Failed to execute command");
 

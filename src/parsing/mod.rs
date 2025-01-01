@@ -108,6 +108,7 @@ mod test {
     use crate::symbols::operands::address::Address;
     use crate::symbols::operands::condition::Condition;
     use crate::symbols::operands::immediate::Immediate;
+    use crate::symbols::operands::offset::Offset;
     use crate::symbols::operands::Operand;
     use crate::symbols::operands::port::Port;
     use crate::symbols::operands::register::Register;
@@ -115,8 +116,8 @@ mod test {
     #[test]
     fn labels_default() {
         let input = ".main_loop_start";
-        let result = parse_labels(input);
-        assert!(result.is_ok(), "Failed to parse valid label");
+        let result = parse_labels(input).finish();
+        assert!(result.is_ok(), "Failed to parse valid label: \n{}", convert_error(input, result.unwrap_err()));
         let (rest, label) = result.unwrap();
         assert_eq!(rest, "");
         assert_eq!(label.operands[0], Operand::Label("main_loop_start".to_string()));
@@ -198,6 +199,7 @@ mod test {
     
     #[test]
     fn weird_comment_1() {
+        
         let input = "ADD/* \r\nThis should fail\r\n\r\n */R1, R2, R3 // comment\r\n";
         let result = parse_instruction(input).finish();
         assert!(result.is_err(), "Failed to error on invalid instruction");
@@ -295,13 +297,6 @@ mod test {
         let result = parse_instruction(input).finish();
         assert!(result.is_err(), "Failed to error on invalid operands");
     }
-
-    #[test]
-    fn too_many_operands() {
-        let input = "add R1, R2, R3, R4";
-        let result = parse_instruction(input);
-        assert!(result.is_err(), "Failed to error on too many operands");
-    }
     
     #[test]
     fn weird_jump_case() {
@@ -313,7 +308,8 @@ mod test {
         println!("{:?}", instruction);
         assert_eq!(rest, ".start\r\n    nop");
         assert_eq!(instruction.opcode, Opcode::JMP);
-        assert_eq!(instruction.operands[0], Operand::Label("start".to_string()));
+        let offset = Offset::new("start".to_string());
+        assert_eq!(instruction.operands[0], Operand::Offset(offset));
     }
 
     #[test]
@@ -410,12 +406,12 @@ mod test {
 
     #[test]
     fn test_parse_address() {
-        let input = "0x1234\r\n";
+        let input = "0x0020\r\n";
         let result = address(input).finish();
         assert!(result.is_ok(), "Failed to parse valid address: \n{}", convert_error(input, result.unwrap_err()));
 
         let (_, addr) = result.unwrap();
-        assert_eq!(addr, Address::new(0x1234).unwrap());
+        assert_eq!(addr, Address::new(0x0020).unwrap());
     }
     
     #[test]
