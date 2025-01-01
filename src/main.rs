@@ -1,3 +1,9 @@
+/*
+#![deny(clippy::unwrap_used)]
+#![deny(clippy::expect_used)]
+#![deny(clippy::panic)]
+#![deny(clippy::unused_must_use)]
+*/
 mod cli;
 mod printer;
 mod layout;
@@ -7,9 +13,6 @@ mod resolver;
 mod evaluator;
 mod parsing;
 mod assembler;
-
-#[cfg(test)]
-mod tests;
 
 use clap::Parser;
 use crate::assembler::{Assembler, AssemblerStatus};

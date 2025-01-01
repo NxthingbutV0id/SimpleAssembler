@@ -67,7 +67,7 @@ impl FromStr for Opcode {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
+        match s.to_lowercase().as_str() {
             "nop" => Ok(Opcode::NOP),
             "hlt" => Ok(Opcode::HLT),
             "add" => Ok(Opcode::ADD),

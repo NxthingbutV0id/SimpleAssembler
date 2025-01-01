@@ -2,19 +2,21 @@ use std::collections::HashMap;
 use custom_error::custom_error;
 use crate::symbols::instruction::Instruction;
 use crate::symbols::opcodes::Opcode;
+use crate::symbols::operands::immediate::Immediate;
 use crate::symbols::operands::Operand;
-
 
 custom_error! {pub EvaluatorError
     UnknownDefinition{name:String} = "Unknown definition: {name}",
-    InvalidDefinition{name:String} = "Definition {name} is missing a value",
+    MissingDefinitionValue{name:String} = "Definition {name} is missing a value",
     UnknownOffset{name:String} = "Offset {name} not found",
     InvalidOffset{name:String} = "Offset {name} does not have a binding"
 }
 
+type Definitions = HashMap<String, Immediate>;
+
 pub fn evaluate_program(program: &mut Vec<Instruction>) -> Result<(), EvaluatorError>{
     info!("Evaluating program...");
-    let defined: HashMap<String, i16> = find_definitions(&program)?;
+    let defined: Definitions = find_definitions(&program)?;
 
     for i in 0..program.len() {
         evaluate_instruction(&mut program[i], &defined)?;
@@ -23,16 +25,16 @@ pub fn evaluate_program(program: &mut Vec<Instruction>) -> Result<(), EvaluatorE
     Ok(())
 }
 
-fn find_definitions(program: &Vec<Instruction>) -> Result<HashMap<String, i16>, EvaluatorError> {
-    let mut defined: HashMap<String, i16> = HashMap::new();
+fn find_definitions(program: &Vec<Instruction>) -> Result<Definitions, EvaluatorError> {
+    let mut defined: Definitions = HashMap::new();
     for instruction in program.iter() {
-        //let instruction = &program[i];
         if let Opcode::_Definition = instruction.opcode {
             if let Operand::Definition(def) = &instruction.operands[0] {
                 let imm = def.value;
 
                 if imm.is_none() {
-                    return Err(EvaluatorError::InvalidDefinition{ name: def.name.clone() });
+                    // This should never happen, as the parser should catch this
+                    return Err(EvaluatorError::MissingDefinitionValue { name: def.name.clone() });
                 }
 
                 defined.insert(def.name.clone(), imm.unwrap());
@@ -40,11 +42,11 @@ fn find_definitions(program: &Vec<Instruction>) -> Result<HashMap<String, i16>, 
             }
         }
     }
-    trace!("Definitions found: {:?}", defined.keys());
+    trace!("{} definitions found: {:?}", defined.len(), defined.keys());
     Ok(defined)
 }
 
-fn evaluate_instruction(instruction: &mut Instruction, defined: &HashMap<String, i16>) -> Result<(), EvaluatorError> {
+fn evaluate_instruction(instruction: &mut Instruction, defined: &HashMap<String, Immediate>) -> Result<(), EvaluatorError> {
     for i in 0..instruction.operands.len() {
         let operand = &mut instruction.operands[i];
         if let Operand::Offset(offset) = operand {
@@ -67,9 +69,9 @@ fn evaluate_instruction(instruction: &mut Instruction, defined: &HashMap<String,
                 if imm.is_none() {
                     return Err(EvaluatorError::UnknownDefinition{ name: def.name.clone() });
                 }
-                let imm = imm.unwrap().clone();
+                let imm = imm.unwrap();
                 trace!("Replacing {} with {}", def.name, imm);
-                *operand = Operand::Immediate(imm);
+                *operand = Operand::Immediate(*imm);
             }
         }
     }

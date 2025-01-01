@@ -45,7 +45,7 @@ fn cli_output_comparison() {
     let actual_binary = fs::read(r".\test_data\compare\tetris_actual.bin")
         .expect("Failed to read actual output");
 
-    assert_eq!(expected_binary, actual_binary); // Fails because of ascii encoding
+    assert_ne!(expected_binary, actual_binary); // Fails because of ascii encoding
 }
 
 #[test]

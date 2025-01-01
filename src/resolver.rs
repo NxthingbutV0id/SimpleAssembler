@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use custom_error::custom_error;
 use crate::symbols::instruction::Instruction;
 use crate::symbols::opcodes::Opcode::_Label;
-use crate::symbols::operands::{Operand};
+use crate::symbols::operands::Operand;
 
 custom_error! {pub ResolveError
     LabelNotFound{name:String} = "Label .{name} not found in program",
@@ -10,6 +10,7 @@ custom_error! {pub ResolveError
     MissingAddress{instruction:Instruction} = "Instruction {instruction} is missing address"
 }
 
+// This has to be done inline because the compiler is a bitch
 pub fn resolve_program(program: &mut Vec<Instruction>) -> Result<(), ResolveError> {
     let mut labels: HashMap<String, Instruction> = HashMap::new();
     info!("Resolving program...");

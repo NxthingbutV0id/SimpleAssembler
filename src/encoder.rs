@@ -1,6 +1,8 @@
 use custom_error::custom_error;
-use crate::symbols::{opcodes::Opcode, opcodes::Opcode::*, operands::Operand, instruction::Instruction};
-use crate::symbols::operands::Register::R0;
+use crate::symbols::{opcodes::Opcode, opcodes::Opcode::*, instruction::Instruction};
+use crate::symbols::operands::immediate::Immediate;
+use crate::symbols::operands::Operand;
+use crate::symbols::operands::register::Register::R0;
 
 pub struct InstructionEncoder {
     encoding: Option<u16>,
@@ -11,7 +13,10 @@ custom_error! {pub EncodingError
     ValueOutOfBounds = "Value out of bounds",
     ValueOverflow = "Value overflow",
     InvalidOperand = "Invalid operand",
-    AddressOutOfBounds = "Address out of bounds"
+    AddressOutOfBounds = "Address out of bounds",
+    UnboundDefinition = "Unbound definition",
+    UnboundOffset = "Unbound offset",
+    InvalidOffset = "Invalid offset"
 }
 
 impl InstructionEncoder {
@@ -62,20 +67,20 @@ impl InstructionEncoder {
             LDI | ADI => {
                 self.encode_opcode(&instruction.opcode)?;
                 self.encode_a(&instruction.operands[0])?;
-                self.encode_imm8(&instruction.operands[1])?;
+                self.encode_imm(&instruction.operands[1])?;
                 self.total += 1;
                 Ok(())
             },
             JMP | CAL => {
                 self.encode_opcode(&instruction.opcode)?;
-                self.encode_jmp_addr(&instruction.operands[0])?;
+                self.encode_addr(&instruction.operands[0])?;
                 self.total += 1;
                 Ok(())
             },
             BRH => {
                 self.encode_opcode(&instruction.opcode)?;
                 self.encode_cond(&instruction.operands[0])?;
-                self.encode_brh_addr(&instruction.operands[1])?;
+                self.encode_addr(&instruction.operands[1])?;
                 self.total += 1;
                 Ok(())
             },
@@ -83,7 +88,7 @@ impl InstructionEncoder {
                 self.encode_opcode(&instruction.opcode)?;
                 self.encode_a(&instruction.operands[0])?;
                 self.encode_b(&instruction.operands[1])?;
-                self.encode_simm4(&instruction.operands[2])?;
+                self.encode_offset(instruction.operands.get(2))?;
                 self.total += 1;
                 Ok(())
             }
@@ -114,14 +119,16 @@ impl InstructionEncoder {
             INC => {
                 self.encode_opcode(&ADI)?;
                 self.encode_a(&instruction.operands[0])?;
-                self.encode_imm8(&Operand::Immediate(1))?;
+                let imm = Immediate::new(1).unwrap();
+                self.encode_imm(&Operand::from(imm))?;
                 self.total += 1;
                 Ok(())
             }
             DEC => {
                 self.encode_opcode(&ADI)?;
                 self.encode_a(&instruction.operands[0])?;
-                self.encode_imm8(&Operand::Immediate(-1))?;
+                let imm = Immediate::new(-1).unwrap();
+                self.encode_imm(&Operand::from(imm))?;
                 self.total += 1;
                 Ok(())
             }
@@ -183,73 +190,97 @@ impl InstructionEncoder {
         }
     }
 
-    fn encode_imm8(&mut self, operand: &Operand) -> Result<(), EncodingError> {
-        let value = self.check_imm(operand, -128, 256)?;
-        self.encode_bits(0, 8, value)?;
-        Ok(())
-    }
-
-    fn check_imm(&self, operand: &Operand, min: i16, max: i16) -> Result<u16, EncodingError> {
-        if let Operand::Address(addr) =  operand {
-            let imm = *addr as i16;
-            if imm < min || imm >= max {
-                error!("Address out of bounds: {}", addr);
-                return Err(EncodingError::AddressOutOfBounds);
-            } else if imm & 1 == 1 {
-                warn!("Memory Misalignment: {}, LSB is ignored", addr);
+    fn encode_imm(&mut self, operand: &Operand) -> Result<(), EncodingError> {
+        match operand { 
+            Operand::Immediate(imm) => {
+                self.encode_bits(0, 8, imm.value() as u16)?;
+                Ok(())
+            },
+            Operand::Definition(definition) => {
+                let imm = match definition.value {
+                    Some(i) => i,
+                    None => {
+                        error!("Definition {} does not have a value", definition.name);
+                        return Err(EncodingError::UnboundDefinition);
+                    }
+                };
+                self.encode_bits(0, 8, imm.value() as u16)?;
+                Ok(())
             }
-            Ok(*addr)
-        } else if let Operand::Immediate(imm) = operand {
-            if *imm < min || *imm >= max {
-                error!("Immediate value out of range: {}", imm);
-                return Err(EncodingError::ValueOutOfBounds);
+            Operand::Port(port) => {
+                self.encode_bits(0, 8, *port as u16)?;
+                Ok(())
+            },
+            _ => {
+                error!("Expected immediate or definition, got {}", operand);
+                Err(EncodingError::InvalidOperand)
             }
-            Ok((*imm & 0xFF) as u16)
-        } else if let Operand::Offset(offset) = operand {
-            let imm = offset.offset.unwrap();
-            if imm >> 1 >= max as u16 {
-                error!("Offset value out of range: {} (program too big?)", imm);
-                return Err(EncodingError::ValueOutOfBounds);
-            }
-            Ok(imm >> 1)
-        } else if let Operand::Port(port) = operand {
-            Ok((*port as u8) as u16)
-        } else if let Operand::Character(c) = operand {
-            Ok((*c as u8) as u16)
-            // While technically incorrect as the original CPU did not use ascii encoding
-            // this is fine for now
-        } else {
-            error!("{} is not an immediate value", operand);
-            Err(EncodingError::InvalidOperand)
         }
     }
 
     fn encode_cond(&mut self, operand: &Operand) -> Result<(), EncodingError> {
-        if let Operand::Condition(cond) = operand {
-            self.encode_bits(10, 2, *cond as u16)?;
-            Ok(())
-        } else {
-            error!("Expected condition, got {}", operand);
-            Err(EncodingError::InvalidOperand)
+        match operand { 
+            Operand::Condition(cond) => {
+                self.encode_bits(10, 2, *cond as u16)?;
+                Ok(())
+            },
+            _ => {
+                error!("Expected condition, got {}", operand);
+                Err(EncodingError::InvalidOperand)
+            }
         }
     }
 
-    fn encode_jmp_addr(&mut self, operand: &Operand) -> Result<(), EncodingError> {
-        let value = self.check_imm(operand, 0, 1 << 12)?;
-        self.encode_bits(0, 12, value)?;
-        Ok(())
+    fn encode_addr(&mut self, operand: &Operand) -> Result<(), EncodingError> {
+        match operand { 
+            Operand::Address(addr) => {
+                self.encode_bits(0, 10, addr.value())?;
+                Ok(())
+            },
+            Operand::Offset(offset) => {
+                let o = offset.clone();
+                let b = match o.binding {
+                    Some(b) => b,
+                    None => {
+                        error!("Offset {} does not have a binding", o.name);
+                        return Err(EncodingError::UnboundOffset);
+                    }
+                };
+
+                let a = match b.address {
+                    Some(a) => a,
+                    None => {
+                        error!("Offset {} does not have an address", o.name);
+                        return Err(EncodingError::InvalidOffset);
+                    }
+                };
+
+
+                self.encode_bits(0, 4, a)?;
+                Ok(())
+            },
+            _ => {
+                error!("Expected address, got {}", operand);
+                Err(EncodingError::InvalidOperand)
+            }
+        }
     }
 
-    fn encode_brh_addr(&mut self, operand: &Operand) -> Result<(), EncodingError> {
-        let imm = self.check_imm(operand, 0, 1 << 10)?;
-        self.encode_bits(0, 10, imm)?;
-        Ok(())
-    }
-
-    fn encode_simm4(&mut self, operand: &Operand) -> Result<(), EncodingError> {
-        let value = self.check_imm(operand, -8, 16)?;
-        self.encode_bits(0, 4, value)?;
-        Ok(())
+    fn encode_offset(&mut self, operand: Option<&Operand>) -> Result<(), EncodingError> {
+        match operand {
+            Some(Operand::Immediate(imm)) => {
+                self.encode_bits(0, 4, imm.value() as u16)?;
+                Ok(())
+            },
+            Some(_) => {
+                error!("Expected immediate, got {}", operand.unwrap());
+                Err(EncodingError::InvalidOperand)
+            },
+            None => {
+                self.encode_bits(0, 4, 0)?;
+                Ok(())
+            }
+        }
     }
 
     fn encode_bits(&mut self, offset: u16, length: u16, value: u16) -> Result<(), EncodingError> {

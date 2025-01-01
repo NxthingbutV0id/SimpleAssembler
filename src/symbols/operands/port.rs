@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use std::str::FromStr;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Port {
@@ -18,31 +19,6 @@ pub enum Port {
     UnsignedMode,
     RNG,
     ControllerInput
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct Definition {
-    pub name: String,
-    pub value: Option<i16>
-}
-
-impl Definition {
-    pub fn new(name: &str) -> Definition {
-        Definition {
-            name: name.to_string(),
-            value: None
-        }
-    }
-}
-
-impl Display for Definition {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        if self.value.is_some() {
-            write!(f, "{} ({})", self.name, self.value.unwrap())
-        } else {
-            write!(f, "{} (NULL)", self.name)
-        }
-    }
 }
 
 impl Display for Port {
@@ -66,5 +42,31 @@ impl Display for Port {
             Port::ControllerInput => "CONTROLLER_INPUT"
         };
         write!(f, "{} (0x{:02X})", text, self.clone() as u8)
+    }
+}
+
+impl FromStr for Port {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "pixel_x" => Ok(Port::PixelX),
+            "pixel_y" => Ok(Port::PixelY),
+            "draw_pixel" => Ok(Port::DrawPixel),
+            "clear_pixel" => Ok(Port::ClearPixel),
+            "load_pixel" => Ok(Port::LoadPixel),
+            "buffer_screen" => Ok(Port::BufferScreen),
+            "clear_screen_buffer" => Ok(Port::ClearScreenBuffer),
+            "write_char" => Ok(Port::WriteChar),
+            "buffer_chars" => Ok(Port::BufferChars),
+            "clear_chars_buffer" => Ok(Port::ClearCharsBuffer),
+            "show_number" => Ok(Port::ShowNumber),
+            "clear_number" => Ok(Port::ClearNumber),
+            "signed_mode" => Ok(Port::SignedMode),
+            "unsigned_mode" => Ok(Port::UnsignedMode),
+            "rng" => Ok(Port::RNG),
+            "controller_input" => Ok(Port::ControllerInput),
+            _ => Err(())
+        }
     }
 }

@@ -1,4 +1,5 @@
-use crate::symbols::{opcodes::Opcode, operands::*, instruction::Instruction};
+use crate::symbols::{opcodes::Opcode, instruction::Instruction};
+use crate::symbols::operands::Operand;
 
 pub struct AssemblyPrinter {
     program: Vec<Instruction>,
@@ -53,26 +54,7 @@ impl AssemblyPrinter {
             if i > 0 {
                 self.emit(", ");
             }
-            match &operands[i] {
-                Operand::Register(reg) => {
-                    self.emit(&format!("r{}", *reg as u8));
-                },
-                Operand::Immediate(i) => self.emit(&format!("{}", *i)),
-                Operand::Condition(cond) => {
-                    match cond {
-                        Condition::CC => self.emit("lt"),
-                        Condition::CS => self.emit("ge"),
-                        Condition::ZC => self.emit("ne"),
-                        Condition::ZS => self.emit("eq")
-                    }
-                }
-                Operand::Address(addr) => self.emit(&format!("0x{:04X}", *addr)),
-                Operand::Offset(offset) => self.emit(&format!(".{}", *offset)),
-                Operand::Label(label) => self.emit(&format!("{}", label)),
-                Operand::Definition(def) => self.emit(&format!("{}", def)),
-                Operand::Port(port) => self.emit(&format!("{}", port)),
-                Operand::Character(c) => self.emit(&format!("{}", c))
-            }
+            self.emit(&format!("{}", operands[i]));
         }
     }
 
