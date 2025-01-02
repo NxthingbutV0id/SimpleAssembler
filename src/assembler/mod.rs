@@ -1,3 +1,5 @@
+pub mod error;
+
 use std::{fs, io};
 use std::path::Path;
 use std::process::{ExitCode, Termination};
@@ -43,8 +45,7 @@ impl Assembler {
                     self.program.extend(code);
                 },
                 Err(e) => {
-                    error!("Failed to parse file: {}", file);
-                    return Err(e)
+                    return Err(Error::from(e))
                 }
             }
         }

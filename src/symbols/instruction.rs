@@ -4,7 +4,8 @@ use crate::symbols::operands::address::Address;
 use crate::symbols::operands::condition::Condition;
 use crate::symbols::operands::definition::Definition;
 use crate::symbols::operands::immediate::Immediate;
-use crate::symbols::operands::offset::Offset;
+use crate::symbols::operands::label::Label;
+use crate::symbols::operands::offset::Nybble;
 use crate::symbols::operands::Operand;
 use crate::symbols::operands::port::Port;
 use crate::symbols::operands::register::Register;
@@ -13,7 +14,7 @@ use crate::symbols::operands::register::Register;
 pub struct Instruction {
     pub opcode: Opcode,
     pub operands: Vec<Operand>,
-    pub address: Option<u16>,
+    pub address: Option<Address>,
     pub encoding: Option<u16>
 }
 
@@ -43,16 +44,16 @@ impl Instruction {
         self.add_operand(Operand::Immediate(imm));
     }
 
-    pub fn add_label(&mut self, label: String) {
-        self.add_operand(Operand::Label(label));
+    pub fn add_label_name(&mut self, name: String) {
+        self.add_operand(Operand::Name(name));
     }
 
     pub fn add_definition(&mut self, def: Definition) {
         self.add_operand(Operand::Definition(def));
     }
     
-    pub fn add_offset(&mut self, off: Offset) {
-        self.add_operand(Operand::Offset(off));
+    pub fn add_label(&mut self, label: Label) {
+        self.add_operand(Operand::Label(label));
     }
     
     pub fn add_port(&mut self, port: Port) {
@@ -65,6 +66,10 @@ impl Instruction {
     
     pub fn add_character(&mut self, ch: char) {
         self.add_operand(Operand::Character(ch));
+    }
+    
+    pub fn add_offset(&mut self, i4: Nybble) {
+        self.add_operand(Operand::Offset(i4));
     }
 }
 
@@ -81,8 +86,8 @@ impl Display for Instruction {
         }
 
         for op in &self.operands {
-            let op_text = if let Operand::Label(label) = op {
-                format!("{}", *label)
+            let op_text = if let Operand::Name(name) = op {
+                format!("{}", *name)
             } else {
                 format!(" {}", *op)
             };

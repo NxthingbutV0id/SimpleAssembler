@@ -34,7 +34,7 @@ impl AssemblyPrinter {
         let encoding = instruction.encoding;
 
         if let Some(location) = location {
-            self.emit(&format!("{:04X} |", location));
+            self.emit(&format!("{:04X} |", location.value() << 1));
         } else {
             self.emit("---- |");
         }

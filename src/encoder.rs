@@ -1,4 +1,4 @@
-use custom_error::custom_error;
+use crate::assembler::error::EncodingError;
 use crate::symbols::{opcodes::Opcode, opcodes::Opcode::*, instruction::Instruction};
 use crate::symbols::operands::immediate::Immediate;
 use crate::symbols::operands::Operand;
@@ -7,16 +7,6 @@ use crate::symbols::operands::register::Register::R0;
 pub struct InstructionEncoder {
     encoding: Option<u16>,
     total: u16
-}
-
-custom_error! {pub EncodingError
-    ValueOutOfBounds = "Value out of bounds",
-    ValueOverflow = "Value overflow",
-    InvalidOperand = "Invalid operand",
-    AddressOutOfBounds = "Address out of bounds",
-    UnboundDefinition = "Unbound definition",
-    UnboundOffset = "Unbound offset",
-    InvalidOffset = "Invalid offset"
 }
 
 impl InstructionEncoder {
@@ -28,14 +18,11 @@ impl InstructionEncoder {
     }
 
     pub fn encode_program(&mut self, program: &mut Vec<Instruction>) -> Result<(), EncodingError> {
-        info!("Encoding program...");
         for i in 0..program.len() {
             self.encoding = Some(0);
+            trace!("Encoding instruction: {}", program[i]);
             self.encode_instruction(&mut program[i])?;
             program[i].encoding = self.encoding;
-            if program[i].encoding.is_some() {
-                trace!("Instruction encoded: {}", program[i]);
-            }
         }
         debug!("Encoded {} instructions", self.total);
         Ok(())
@@ -161,32 +148,47 @@ impl InstructionEncoder {
     }
 
     fn encode_a(&mut self, operand: &Operand) -> Result<(), EncodingError> {
-        if let Operand::Register(reg) = operand {
-            self.encode_bits(8, 4, *reg as u16)?;
-            Ok(())
-        } else {
-            error!("Expected register, got {}", operand);
-            Err(EncodingError::InvalidOperand)
+        match operand {
+            Operand::Register(reg) => {
+                self.encode_bits(8, 4, *reg as u16)?;
+                Ok(())
+            },
+            _ => {
+                Err(EncodingError::InvalidOperand{
+                    expected: "register".to_string(),
+                    found: operand.clone(),
+                })
+            }
         }
     }
 
     fn encode_b(&mut self, operand: &Operand) -> Result<(), EncodingError> {
-        if let Operand::Register(reg) = operand {
-            self.encode_bits(4, 4, *reg as u16)?;
-            Ok(())
-        } else {
-            error!("Expected register, got {}", operand);
-            Err(EncodingError::InvalidOperand)
+        match operand { 
+            Operand::Register(reg) => {
+                self.encode_bits(4, 4, *reg as u16)?;
+                Ok(())
+            },
+            _ => {
+                Err(EncodingError::InvalidOperand{
+                    expected: "register".to_string(),
+                    found: operand.clone(),
+                })
+            }
         }
     }
 
     fn encode_c(&mut self, operand: &Operand) -> Result<(), EncodingError> {
-        if let Operand::Register(reg) = operand {
-            self.encode_bits(0, 4, *reg as u16)?;
-            Ok(())
-        } else {
-            error!("Expected register, got {}", operand);
-            Err(EncodingError::InvalidOperand)
+        match operand { 
+            Operand::Register(reg) => {
+                self.encode_bits(0, 4, *reg as u16)?;
+                Ok(())
+            },
+            _ => {
+                Err(EncodingError::InvalidOperand{
+                    expected: "register".to_string(),
+                    found: operand.clone(),
+                })
+            }
         }
     }
 
@@ -200,8 +202,7 @@ impl InstructionEncoder {
                 let imm = match definition.value {
                     Some(i) => i,
                     None => {
-                        error!("Definition {} does not have a value", definition.name);
-                        return Err(EncodingError::UnboundDefinition);
+                        return Err(EncodingError::UnboundDefinition(definition.name.clone()));
                     }
                 };
                 self.encode_bits(0, 8, imm.value() as u16)?;
@@ -211,9 +212,15 @@ impl InstructionEncoder {
                 self.encode_bits(0, 8, *port as u16)?;
                 Ok(())
             },
+            Operand::Character(ch) => {
+                self.encode_bits(0, 8, *ch as u16)?;
+                Ok(())
+            },
             _ => {
-                error!("Expected immediate or definition, got {}", operand);
-                Err(EncodingError::InvalidOperand)
+                Err(EncodingError::InvalidOperand{
+                    expected: "immediate".to_string(),
+                    found: operand.clone(),
+                })
             }
         }
     }
@@ -225,8 +232,10 @@ impl InstructionEncoder {
                 Ok(())
             },
             _ => {
-                error!("Expected condition, got {}", operand);
-                Err(EncodingError::InvalidOperand)
+                Err(EncodingError::InvalidOperand{
+                    expected: "condition".to_string(),
+                    found: operand.clone(),
+                })
             }
         }
     }
@@ -237,13 +246,13 @@ impl InstructionEncoder {
                 self.encode_bits(0, 10, addr.value())?;
                 Ok(())
             },
-            Operand::Offset(offset) => {
-                let o = offset.clone();
+            Operand::Label(label) => {
+                let o = label.clone();
                 let b = match o.binding {
                     Some(b) => b,
                     None => {
                         error!("Offset {} does not have a binding", o.name);
-                        return Err(EncodingError::UnboundOffset);
+                        return Err(EncodingError::UnboundOffset(label.clone()));
                     }
                 };
 
@@ -251,30 +260,34 @@ impl InstructionEncoder {
                     Some(a) => a,
                     None => {
                         error!("Offset {} does not have an address", o.name);
-                        return Err(EncodingError::InvalidOffset);
+                        return Err(EncodingError::InvalidOffset(label.clone()));
                     }
                 };
 
 
-                self.encode_bits(0, 4, a)?;
+                self.encode_bits(0, 10, a.value())?;
                 Ok(())
-            },
+            }
             _ => {
-                error!("Expected address, got {}", operand);
-                Err(EncodingError::InvalidOperand)
+                Err(EncodingError::InvalidOperand {
+                    expected: "address".to_string(),
+                    found: operand.clone(),
+                })
             }
         }
     }
 
     fn encode_offset(&mut self, operand: Option<&Operand>) -> Result<(), EncodingError> {
         match operand {
-            Some(Operand::Immediate(imm)) => {
-                self.encode_bits(0, 4, imm.value() as u16)?;
+            Some(Operand::Offset(value)) => {
+                self.encode_bits(0, 4, value.value() as u16)?;
                 Ok(())
             },
             Some(_) => {
-                error!("Expected immediate, got {}", operand.unwrap());
-                Err(EncodingError::InvalidOperand)
+                Err(EncodingError::InvalidOperand{
+                    expected: "optional immediate".to_string(),
+                    found: operand.unwrap().clone(),
+                })
             },
             None => {
                 self.encode_bits(0, 4, 0)?;
@@ -285,12 +298,11 @@ impl InstructionEncoder {
 
     fn encode_bits(&mut self, offset: u16, length: u16, value: u16) -> Result<(), EncodingError> {
         if offset + length > 16 {
-            error!("Unable to write outside 16-bit");
-            return Err(EncodingError::ValueOutOfBounds);
+            return Err(EncodingError::ValueOutOfBounds(value));
         }
         if value >= 1 << length {
-            error!("The value of {value} is too large to fit in {length} bits");
-            return Err(EncodingError::ValueOverflow);
+            debug!("Errored after {} instructions", self.total);
+            return Err(EncodingError::ValueOverflow{ value, length });
         }
 
         let mask: u16 = ((1 << length) - 1) << offset;

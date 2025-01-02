@@ -1,7 +1,7 @@
 use nom::branch::alt;
 use nom::error::{context, convert_error, VerboseError};
 use nom::{Finish, IResult};
-use nom::combinator::cut;
+use nom::combinator::eof;
 use nom::multi::many0;
 use nom::sequence::preceded;
 use crate::parsing::complex::{parse_labels, parse_definitions, parse_instruction};
@@ -17,13 +17,14 @@ pub fn parse_program(input: &str) -> IResult<&str, Vec<Instruction>, VerboseErro
                 alt((
                     parse_labels, 
                     parse_definitions, 
-                    cut(parse_instruction)
+                    parse_instruction
                 ))
             )
         )
     )(input).finish();
     match e {
         Ok((rest, program)) => {
+            eof(rest)?;
             debug!("Program parsed successfully");
             Ok((rest, program))
         },

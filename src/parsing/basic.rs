@@ -20,7 +20,8 @@ use crate::symbols::operands::condition::Condition;
 use crate::symbols::operands::definition::Definition;
 use crate::symbols::operands::port::Port;
 use crate::symbols::operands::immediate::Immediate;
-use crate::symbols::operands::offset::Offset;
+use crate::symbols::operands::label::Label;
+use crate::symbols::operands::offset::Nybble;
 use crate::symbols::operands::register::Register;
 
 pub fn character(input: &str) -> Res<&str, char> {
@@ -88,10 +89,24 @@ pub fn condition(input: &str) -> Res<&str, Condition> {
     }
 }
 
-pub fn offset(input: &str) -> Res<&str, Offset> {
+pub fn label_usage(input: &str) -> Res<&str, Label> {
     let (rest, _) = context("Offset", tag("."))(input)?;
     let (rest, name) = identifier(rest)?;
-    Ok((rest, Offset::new(name.to_string())))
+    Ok((rest, Label::new(name.to_string())))
+}
+
+pub fn offset(input: &str) -> Res<&str, Nybble> {
+    let (rest, signed) = opt(one_of("+-"))(input)?;
+    let negative: bool = signed.unwrap_or('+') == '-';
+    let (rest, imm) = decimal::<i8>(rest)?;
+    let imm = if negative {-imm} else {imm};
+    
+    match Nybble::new(imm) { 
+        Some(i) => Ok((rest, i)),
+        None => {
+            context("Offset (Value out of bounds)", fail)(rest)
+        }
+    }
 }
 
 pub fn address(input: &str) -> Res<&str, Address> {
@@ -146,14 +161,17 @@ pub fn opcode(input: &str) -> Res<&str, Opcode> {
     let op = Opcode::from_str(op);
     
     match op {
-        Ok(o) => Ok((rest, o)),
+        Ok(o) => {
+            trace!("Parsed {} opcode", o);
+            Ok((rest, o))
+        },
         Err(_) => {
             context("Opcode (Invalid)", fail)(input)
         }
     }
 }
 
-pub fn label(input: &str) -> Res<&str, &str> {
+pub fn label_define(input: &str) -> Res<&str, &str> {
     context(
         "Label",
         delimited(

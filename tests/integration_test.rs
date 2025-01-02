@@ -191,7 +191,7 @@ fn game_of_life() {
         .output()
         .expect("Failed to execute command");
 
-    check_output(&output);
+    check_output(&output); // Fails because of 
 }
 
 #[test]
@@ -203,6 +203,7 @@ fn hello_world() {
         .arg(r".\test_data\hello_world\hello_world.asm")
         .arg("-o")
         .arg(r".\test_data\hello_world\hello_world.bin")
+        .arg("-d")
         .output()
         .expect("Failed to execute command");
 

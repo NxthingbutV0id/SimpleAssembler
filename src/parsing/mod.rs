@@ -1,16 +1,17 @@
 use std::fs;
 use std::path::Path;
-use anyhow::Error;
-use custom_error::custom_error;
+use nom::error::convert_error;
+use nom::Finish;
+use crate::assembler::error::ParsingError;
 use crate::symbols::instruction::Instruction;
 use crate::parsing::parser::parse_program;
-use crate::parsing::ParsingError::*;
 use crate::symbols::opcodes::Opcode;
 
 pub(crate) mod basic;
 pub(crate) mod helper;
 mod complex;
 mod parser;
+mod token;
 
 const KEYWORDS: [&str; 76] = [
     "define",
@@ -39,31 +40,21 @@ const KEYWORDS: [&str; 76] = [
     "rng", "controller_input"
 ];
 
-custom_error! {pub ParsingError
-    FileNotFound = "File not found",
-    InvalidFile = "Invalid file",
-    InvalidExtension = "Invalid file extension",
-    NoInstructions = "No instructions found in file"
-}
-
-pub fn parse_file(file: &str) -> anyhow::Result<Vec<Instruction>> {
+pub fn parse_file(file: &str) -> Result<Vec<Instruction>, ParsingError> {
     info!("Parsing {}...", file);
     let path = Path::new(file);
     if !path.exists() {
-        error!("File not found: {}", file);
-        return Err(Error::from(FileNotFound));
+        return Err(ParsingError::FileNotFound(file.to_string()));
     }
 
     if !path.is_file() {
-        error!("Not a file: {}", file);
-        return Err(Error::from(InvalidFile));
+        return Err(ParsingError::InvalidFile(file.to_string()));
     }
 
     if path.extension().unwrap() != "asm" &&
         path.extension().unwrap() != "as" &&
         path.extension().unwrap() != "s" {
-        error!("Not an assembly file (.asm/.as/.s): {:?}", path.extension().unwrap());
-        return Err(Error::from(InvalidExtension));
+        return Err(ParsingError::InvalidExtension(file.to_string()));
     }
 
 
@@ -75,25 +66,32 @@ pub fn parse_file(file: &str) -> anyhow::Result<Vec<Instruction>> {
                 return Ok(Vec::new());
             }
 
-            let program = parse_program(&input)
-                .expect("Failed to parse program").1;
+            let program = parse_program(&input).finish();
+            match program { 
+                Ok((_, program)) => {
+                    trace!("Parsed {} instructions", program.len());
+                    if program.is_empty() {
+                        warn!("No instructions found in file: {}\nReturning an empty list", file);
+                        return Ok(Vec::new());
+                    }
 
-            trace!("Finished parsing file: {}", file);
-            if program.is_empty() {
-                warn!("No instructions found in file: {}", file);
-                return Ok(Vec::new());
-            }
-
-            for instruction in program.iter() {
-                if instruction.opcode != Opcode::_Label && instruction.opcode != Opcode::_Definition {
-                    return Ok(program);
+                    for instruction in program.iter() {
+                        if instruction.opcode != Opcode::_Label && instruction.opcode != Opcode::_Definition {
+                            return Ok(program);
+                        }
+                    }
+                    Err(ParsingError::NoInstructions(file.to_string()))
+                },
+                Err(e) => {
+                    Err(ParsingError::FailedToParse { 
+                        file: file.to_string(), 
+                        reason: convert_error(input.as_str(), e) })
                 }
             }
-            Err(Error::from(NoInstructions))
         },
         Err(e) => {
             error!("Failed to read file: {}", file);
-            Err(Error::from(e))
+            Err(ParsingError::from(e))
         }
     }
 }
@@ -108,7 +106,7 @@ mod test {
     use crate::symbols::operands::address::Address;
     use crate::symbols::operands::condition::Condition;
     use crate::symbols::operands::immediate::Immediate;
-    use crate::symbols::operands::offset::Offset;
+    use crate::symbols::operands::label::Label;
     use crate::symbols::operands::Operand;
     use crate::symbols::operands::port::Port;
     use crate::symbols::operands::register::Register;
@@ -120,7 +118,7 @@ mod test {
         assert!(result.is_ok(), "Failed to parse valid label: \n{}", convert_error(input, result.unwrap_err()));
         let (rest, label) = result.unwrap();
         assert_eq!(rest, "");
-        assert_eq!(label.operands[0], Operand::Label("main_loop_start".to_string()));
+        assert_eq!(label.operands[0], Operand::Name("main_loop_start".to_string()));
     }
 
     #[test]
@@ -129,7 +127,7 @@ mod test {
         let result = parse_labels(input);
         assert!(result.is_ok(), "Failed to parse valid label");
         let (_, label) = result.unwrap();
-        assert_eq!(label.operands[0], Operand::Label("main_loop_start".to_string()));
+        assert_eq!(label.operands[0], Operand::Name("main_loop_start".to_string()));
     }
 
     #[test]
@@ -138,7 +136,7 @@ mod test {
         let result = parse_labels(input);
         assert!(result.is_ok(), "Failed to parse valid label");
         let (_, label) = result.unwrap();
-        assert_eq!(label.operands[0], Operand::Label("main_loop_start".to_string()));
+        assert_eq!(label.operands[0], Operand::Name("main_loop_start".to_string()));
     }
 
     #[test]
@@ -293,7 +291,7 @@ mod test {
 
     #[test]
     fn weird_load_store_6() {
-        let input = "    LOD R1, R3,\r\n"; //TODO: Run these test tomorrow
+        let input = "    LOD R1, R3,\r\n";
         let result = parse_instruction(input).finish();
         assert!(result.is_err(), "Failed to error on invalid operands");
     }
@@ -308,8 +306,8 @@ mod test {
         println!("{:?}", instruction);
         assert_eq!(rest, ".start\r\n    nop");
         assert_eq!(instruction.opcode, Opcode::JMP);
-        let offset = Offset::new("start".to_string());
-        assert_eq!(instruction.operands[0], Operand::Offset(offset));
+        let offset = Label::new("start".to_string());
+        assert_eq!(instruction.operands[0], Operand::Label(offset));
     }
 
     #[test]
@@ -383,21 +381,21 @@ mod test {
     #[test]
     fn offset_test() {
         let input = ".offset \r\n";
-        let result = offset(input).finish();
+        let result = label_usage(input).finish();
         assert!(result.is_ok(), "Failed to parse valid offset: \n{}", convert_error(input, result.unwrap_err()));
     }
     
     #[test]
     fn offset_invalid() {
         let input = ".";
-        let result = offset(input);
+        let result = label_usage(input);
         assert!(result.is_err(), "Failed to error on invalid offset");
     }
     
     #[test]
     fn offset_error_spacing() {
         let input = ".   offset\r\n    nop";
-        let result = offset(input).finish();
+        let result = label_usage(input).finish();
         assert!(result.is_err(), "Failed to error on invalid offset");
         
         let err = result.unwrap_err();
@@ -538,7 +536,7 @@ mod test {
     #[test]
     fn test_parse_label() {
         let input = ".my_label\r\n";
-        let result = label(input);
+        let result = label_define(input);
         assert!(result.is_ok(), "Failed to parse valid label");
     }
 }

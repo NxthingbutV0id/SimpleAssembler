@@ -67,7 +67,7 @@ fn whitespace(input: &str) -> Res<&str, &str> {
 }
 
 pub fn skip(input: &str) -> Res<&str, &str> {
-    value("", many0(alt((comment, multiline_comment, whitespace))))(input)
+    value("", many0(alt((comment, multiline_comment, whitespace, comment_start))))(input)
 }
 
 /// Grabs any variable name (Anything until whitespace). Does not allow numbers at the start

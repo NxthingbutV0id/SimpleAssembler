@@ -2,252 +2,285 @@ use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::combinator::{fail, map_res, opt, peek};
 use nom::error::{context, VerboseError};
-use nom::IResult;
-use crate::parsing::basic::{address, character, condition, define, definition, immediate, label, offset, opcode, port, register};
+use crate::parsing::basic::{offset, address, character, condition, define, definition, immediate, label_define, label_usage, opcode, port, register};
 use crate::parsing::helper::{leading_ws, next_instruction, next_token, Res};
 use crate::symbols::instruction::Instruction;
-use crate::symbols::opcodes::Opcode::*;
+use crate::symbols::opcodes::Opcode;
 use crate::symbols::operands::Operand;
-use crate::symbols::operands::Operand::{Address, Character, Condition, Definition, Offset, Port, Register};
+use crate::symbols::operands::register::Register;
 
-pub fn parse_instruction(input: &str) -> IResult<&str, Instruction, VerboseError<&str>> {
+fn no_operands(input: &str, opcode: Opcode) -> Res<&str, Instruction> {
+    let (rest, _) = next_instruction(input)?;
+    Ok((rest, {
+        trace!("Found instruction: {opcode}");
+        Instruction::new(opcode)
+    }))
+}
+
+fn three_operands(input: &str, opcode: Opcode) -> Res<&str, Instruction> {
+    let (rest, _) = next_token(input)?;
+    let (rest, a) = register(rest)?;
+    let (rest, _) = next_token(rest)?;
+    let (rest, b) = register(rest)?;
+    let (rest, _) = next_token(rest)?;
+    let (rest, c) = register(rest)?;
+    let (rest, _) = next_instruction(rest)?;
+    Ok((rest, {
+        trace!("Found instruction: {} {}, {}, {}", opcode, a, b, c);
+        let mut temp = Instruction::new(opcode);
+        temp.add_register(a);
+        temp.add_register(b);
+        temp.add_register(c);
+        temp
+    }))
+}
+
+fn two_operands(input: &str, opcode: Opcode) -> Res<&str, Instruction> {
+    let (rest, _) = next_token(input)?;
+    let (rest, a) = register(rest)?;
+    let (rest, _) = next_token(rest)?;
+    let (rest, b) = register(rest)?;
+    let (rest, _) = next_instruction(rest)?;
+    Ok((rest, {
+        trace!("Found instruction: {} {}, {}", opcode, a, b);
+        let mut temp = Instruction::new(opcode);
+        temp.add_register(a);
+        temp.add_register(b);
+        temp
+    }))
+}
+
+fn one_operand(input: &str, opcode: Opcode) -> Res<&str, Instruction> {
+    let (rest, _) = next_token(input)?;
+    let (rest, a) = register(rest)?;
+    let (rest, _) = next_instruction(rest)?;
+    Ok((rest, {
+        trace!("Found instruction: {} {}", opcode, a);
+        let mut temp = Instruction::new(opcode);
+        temp.add_register(a);
+        temp
+    }))
+}
+
+fn immediate_instructions(input: &str, opcode: Opcode) -> Res<&str, Instruction> {
+    let (rest, _) = next_token(input)?;
+    let (rest, a) = register(rest)?;
+    let (rest, _) = next_token(rest)?;
+    let (rest, b) = peek(operand)(rest)?;
+    match b {
+        Operand::Immediate(_) => {
+            let (rest, imm) = immediate(rest)?;
+            let (rest, _) = next_instruction(rest)?;
+            Ok((rest, {
+                trace!("Found instruction: {} {}, {}", opcode, a, imm);
+                let mut temp = Instruction::new(opcode);
+                temp.add_register(a);
+                temp.add_immediate(imm);
+                temp
+            }))
+        }
+        Operand::Definition(_) => {
+            let (rest, def) = definition(rest)?;
+            let (rest, _) = next_instruction(rest)?;
+            Ok((rest, {
+                trace!("Found instruction: {} {}, {}", opcode, a, def.name);
+                let mut temp = Instruction::new(opcode);
+                temp.add_register(a);
+                temp.add_definition(def);
+                temp
+            }))
+        }
+        Operand::Port(_) => {
+            let (rest, p) = port(rest)?;
+            let (rest, _) = next_instruction(rest)?;
+            Ok((rest, {
+                trace!("Found instruction: {} {}, {}", opcode, a, p);
+                let mut temp = Instruction::new(opcode);
+                temp.add_register(a);
+                temp.add_port(p);
+                temp
+            }))
+        }
+        Operand::Character(_) => {
+            let (rest, ch) = character(rest)?;
+            let (rest, _) = next_instruction(rest)?;
+            Ok((rest, {
+                trace!("Found instruction: {} {}, {}", opcode, a, ch);
+                let mut temp = Instruction::new(opcode);
+                temp.add_register(a);
+                temp.add_character(ch);
+                temp
+            }))
+        },
+        _ => {
+            error!("Error: Unexpected operand for {opcode}: {b:?}");
+            context("Instruction (Unexpected Operand)", fail)(rest)
+        },
+    }
+}
+
+fn address_instructions(input: &str, opcode: Opcode) -> Res<&str, Instruction> {
+    let (rest, _) = next_token(input)?;
+    trace!("skipped ahead: <{:?}...>", rest.chars().take(20).collect::<String>());
+    let (rest, a) = operand(rest)?;
+    trace!("parsed operand: <{:?}...>", rest.chars().take(20).collect::<String>());
+    let (rest, _) = next_instruction(rest)?;
+    trace!("skipped to next instruction: <{:?}...>", rest.chars().take(20).collect::<String>());
+    match a {
+        Operand::Label(offset) => {
+            Ok((rest, {
+                trace!("Found instruction: {} {}", opcode, offset);
+                let mut temp = Instruction::new(opcode);
+                temp.add_label(offset);
+                temp
+            }))
+        }
+        Operand::Address(addr) => {
+            Ok((rest, {
+                trace!("Found instruction: {} {}", opcode, addr);
+                let mut temp = Instruction::new(opcode);
+                temp.add_address(addr);
+                temp
+            }))
+        }
+        _ => {
+            error!("Error: Unexpected operand for {opcode}: {a:?}");
+            context("Instruction (Unexpected Operand)", fail)(rest)
+        },
+    }
+}
+
+fn branch_instruction(input: &str, opcode: Opcode) -> Res<&str, Instruction> {
+    let (rest, _) = next_token(input)?;
+    let (rest, a) = condition(rest)?;
+    let (rest, _) = next_token(rest)?;
+    let (rest, b) = operand(rest)?;
+    let (rest, _) = next_instruction(rest)?;
+    match b {
+        Operand::Label(offset) => {
+            Ok((rest, {
+                trace!("Found instruction: {} {}, {}", opcode, a, offset);
+                let mut temp = Instruction::new(opcode);
+                temp.add_condition(a);
+                temp.add_label(offset);
+                temp
+            }))
+        }
+        Operand::Address(addr) => {
+            Ok((rest, {
+                trace!("Found instruction: {} {}, {}", opcode, a, addr);
+                let mut temp = Instruction::new(opcode);
+                temp.add_condition(a);
+                temp.add_address(addr);
+                temp
+            }))
+        }
+        _ => {
+            error!("Error: Unexpected operand for {opcode}");
+            context("Instruction (Unexpected Operand)", fail)(rest)
+        },
+    }
+}
+
+/// You put a comma, therefore, there must be a next value
+fn there_must_be_a_next_value(input: &str, opcode: Opcode, a: Register, b: Register) -> Res<&str, Instruction> {
+    let (rest, _) = next_token(input)?;
+    let (rest, offset_value) = operand(rest)?;
+    let (rest, _) = next_instruction(rest)?;
+    there_is_a_next_value(rest, opcode, a, b, offset_value)
+}
+
+/// You didn't put a comma, but there could still be a next value
+fn there_could_be_a_next_value(input: &str, opcode: Opcode, a: Register, b: Register) -> Res<&str, Instruction> {
+    let (rest, test) = opt(next_token)(input)?;
+    match test {
+        Some(_) => {
+            trace!("skipped ahead: <{:?}...>", rest.chars().take(20).collect::<String>());
+            let (rest, oper) = opt(operand)(rest)?;
+            let (rest, _) = next_instruction(rest)?;
+            match oper {
+                Some(o) => there_is_a_next_value(rest, opcode, a, b, o),
+                None => there_is_not_a_next_value(rest, opcode, a, b),
+            }
+        }
+        None => there_is_not_a_next_value(rest, opcode, a, b)
+    }
+}
+
+/// The most deeply nested piece of shit I've ever written
+fn load_and_store(input: &str, opcode: Opcode) -> Res<&str, Instruction> {
+    let (rest, _) = next_token(input)?;
+    trace!("skipped ahead: <{:?}...>", rest.chars().take(20).collect::<String>());
+    let (rest, a) = register(rest)?;
+    trace!("parsed register: <{:?}...>", rest.chars().take(20).collect::<String>());
+    let (rest, _) = next_token(rest)?;
+    trace!("skipped ahead: <{:?}...>", rest.chars().take(20).collect::<String>());
+    let (rest, b) = register(rest)?;
+    trace!("parsed register: <{:?}...>", rest.chars().take(20).collect::<String>());
+    let (rest, next) = opt(peek(tag(",")))(rest)?;
+    trace!("peeked ahead: <{:?}...>", rest.chars().take(20).collect::<String>());
+    match next {
+        Some(_) => there_must_be_a_next_value(rest, opcode, a, b),
+        None => there_could_be_a_next_value(rest, opcode, a, b),
+    }
+}
+
+
+/// Holy shit, there was a value there!!!
+fn there_is_a_next_value(input: &str, opcode: Opcode, a: Register, b: Register, o: Operand) -> Res<&str, Instruction> {
+    match o {
+        Operand::Offset(i) => {
+            Ok((input, {
+                trace!("Found instruction: {} {}, {}, {}", opcode, a, b, i);
+                let mut temp = Instruction::new(opcode);
+                temp.add_register(a);
+                temp.add_register(b);
+                temp.add_offset(i);
+                temp
+            }))
+        }
+        Operand::Definition(d) => {
+            Ok((input, {
+                trace!("Found instruction: {} {}, {}, {}", opcode, a, b, d);
+                let mut temp = Instruction::new(opcode);
+                temp.add_register(a);
+                temp.add_register(b);
+                temp.add_definition(d);
+                temp
+            }))
+        }
+        _ => {
+            // Wrong value >:(
+            error!("Error: Unexpected operand for {opcode}: {o:?}");
+            context("Instruction (Unexpected Operand)", fail)(input)
+        },
+    }
+}
+
+/// There was no value there after all :(
+fn there_is_not_a_next_value(input: &str, opcode: Opcode, a: Register, b: Register) -> Res<&str, Instruction> {
+    Ok((input, {
+        trace!("Found instruction: {} {}, {}", opcode, a, b);
+        let mut temp = Instruction::new(opcode);
+        temp.add_register(a);
+        temp.add_register(b);
+        temp
+    }))
+}
+
+pub fn parse_instruction(input: &str) -> Res<&str, Instruction> {
     trace!("parse_instruction current input: <{:?}...>", input.chars().take(20).collect::<String>());
     let (rest, opcode) = leading_ws(opcode)(input)?;
-    trace!("Opcode parse: <{:?}...>", rest.chars().take(20).collect::<String>());
+    trace!("{} parsed, remaining: <{:?}...>", opcode, rest.chars().take(20).collect::<String>());
     match opcode {
-        NOP | HLT | RET => {
-            let (rest, _) = next_instruction(rest)?;
-            Ok((rest, {
-                trace!("Found instruction: {opcode}");
-                Instruction::new(opcode)
-            }))
-        }
-        ADD | SUB | NOR | AND | XOR => {
-            let (rest, _) = next_token(rest)?;
-            let (rest, a) = register(rest)?;
-            let (rest, _) = next_token(rest)?;
-            let (rest, b) = register(rest)?;
-            let (rest, _) = next_token(rest)?;
-            let (rest, c) = register(rest)?;
-            let (rest, _) = next_instruction(rest)?;
-            Ok((rest, {
-                trace!("Found instruction: {} {}, {}, {}", opcode, a, b, c);
-                let mut temp = Instruction::new(opcode);
-                temp.add_register(a);
-                temp.add_register(b);
-                temp.add_register(c);
-                temp
-            }))
-        },
-        RSH | CMP | MOV | LSH | NOT | NEG => {
-            let (rest, _) = next_token(rest)?;
-            let (rest, a) = register(rest)?;
-            let (rest, _) = next_token(rest)?;
-            let (rest, b) = register(rest)?;
-            let (rest, _) = next_instruction(rest)?;
-            Ok((rest, {
-                trace!("Found instruction: {} {}, {}", opcode, a, b);
-                let mut temp = Instruction::new(opcode);
-                temp.add_register(a);
-                temp.add_register(b);
-                temp
-            }))
-        },
-        INC | DEC => {
-            let (rest, _) = next_token(rest)?;
-            let (rest, a) = register(rest)?;
-            let (rest, _) = next_instruction(rest)?;
-            Ok((rest, {
-                trace!("Found instruction: {} {}", opcode, a);
-                let mut temp = Instruction::new(opcode);
-                temp.add_register(a);
-                temp
-            }))
-        }
-        LDI | ADI => {
-            let (rest, _) = next_token(rest)?;
-            let (rest, a) = register(rest)?;
-            let (rest, _) = next_token(rest)?;
-            let (rest, b) = peek(operand)(rest)?;
-            match b {
-                Operand::Immediate(_) => {
-                    let (rest, imm) = immediate(rest)?;
-                    let (rest, _) = next_instruction(rest)?;
-                    Ok((rest, {
-                        trace!("Found instruction: {} {}, {}", opcode, a, imm);
-                        let mut temp = Instruction::new(opcode);
-                        temp.add_register(a);
-                        temp.add_immediate(imm);
-                        temp
-                    }))
-                }
-                Definition(_) => {
-                    let (rest, def) = definition(rest)?;
-                    let (rest, _) = next_instruction(rest)?;
-                    Ok((rest, {
-                        trace!("Found instruction: {} {}, {}", opcode, a, def.name);
-                        let mut temp = Instruction::new(opcode);
-                        temp.add_register(a);
-                        temp.add_definition(def);
-                        temp
-                    }))
-                }
-                Port(_) => {
-                    let (rest, p) = port(rest)?;
-                    let (rest, _) = next_instruction(rest)?;
-                    Ok((rest, {
-                        trace!("Found instruction: {} {}, {}", opcode, a, p);
-                        let mut temp = Instruction::new(opcode);
-                        temp.add_register(a);
-                        temp.add_port(p);
-                        temp
-                    }))
-                }
-                Character(_) => {
-                    let (rest, ch) = character(rest)?;
-                    let (rest, _) = next_instruction(rest)?;
-                    Ok((rest, {
-                        trace!("Found instruction: {} {}, {}", opcode, a, ch);
-                        let mut temp = Instruction::new(opcode);
-                        temp.add_register(a);
-                        temp.add_character(ch);
-                        temp
-                    }))
-                },
-                _ => {
-                    error!("Error: Unexpected operand for {opcode}: {b:?}");
-                    context("Instruction (Unexpected Operand)", fail)(rest)
-                },
-            }
-        },
-        JMP | CAL => {
-            let (rest, _) = next_token(rest)?;
-            trace!("skipped ahead: <{:?}...>", rest.chars().take(20).collect::<String>());
-            let (rest, a) = operand(rest)?;
-            trace!("parsed operand: <{:?}...>", rest.chars().take(20).collect::<String>());
-            let (rest, _) = next_instruction(rest)?;
-            trace!("skipped to next instruction: <{:?}...>", rest.chars().take(20).collect::<String>());
-            match a {
-                Offset(offset) => {
-                    Ok((rest, {
-                        trace!("Found instruction: {} {}", opcode, offset);
-                        let mut temp = Instruction::new(opcode);
-                        temp.add_offset(offset);
-                        temp
-                    }))
-                }
-                Address(addr) => {
-                    Ok((rest, {
-                        trace!("Found instruction: {} {}", opcode, addr);
-                        let mut temp = Instruction::new(opcode);
-                        temp.add_address(addr);
-                        temp
-                    }))
-                }
-                _ => {
-                    error!("Error: Unexpected operand for {opcode}: {a:?}");
-                    context("Instruction (Unexpected Operand)", fail)(rest)
-                },
-            }
-        },
-        BRH => {
-            let (rest, _) = next_token(rest)?;
-            let (rest, a) = condition(rest)?;
-            let (rest, _) = next_token(rest)?;
-            let (rest, b) = operand(rest)?;
-            let (rest, _) = next_instruction(rest)?;
-            match b {
-                Offset(offset) => {
-                    Ok((rest, {
-                        trace!("Found instruction: {} {}, {}", opcode, a, offset);
-                        let mut temp = Instruction::new(opcode);
-                        temp.add_condition(a);
-                        temp.add_offset(offset);
-                        temp
-                    }))
-                }
-                Address(addr) => {
-                    Ok((rest, {
-                        trace!("Found instruction: {} {}, {}", opcode, a, addr);
-                        let mut temp = Instruction::new(opcode);
-                        temp.add_condition(a);
-                        temp.add_address(addr);
-                        temp
-                    }))
-                }
-                _ => {
-                    error!("Error: Unexpected operand for {opcode}");
-                    context("Instruction (Unexpected Operand)", fail)(rest)
-                },
-            }
-        },
-        LOD | STR => {
-            let (rest, _) = next_token(rest)?;
-            trace!("skipped ahead: <{:?}...>", rest.chars().take(20).collect::<String>());
-            let (rest, a) = register(rest)?;
-            trace!("parsed register: <{:?}...>", rest.chars().take(20).collect::<String>());
-            let (rest, _) = next_token(rest)?;
-            trace!("skipped ahead: <{:?}...>", rest.chars().take(20).collect::<String>());
-            let (rest, b) = register(rest)?;
-            trace!("parsed register: <{:?}...>", rest.chars().take(20).collect::<String>());
-            let (rest, next) = opt(peek(tag(",")))(rest)?;
-            trace!("peeked ahead: <{:?}...>", rest.chars().take(20).collect::<String>());
-            match next {
-                Some(_) => {
-                    let (rest, _) = next_token(rest)?;
-                    let (rest, offset_value) = immediate(rest)?;
-                    let (rest, _) = next_instruction(rest)?;
-                    Ok((rest, {
-                        trace!("Found instruction: {} {}, {}, {}", opcode, a, b, offset_value);
-                        let mut temp = Instruction::new(opcode);
-                        temp.add_register(a);
-                        temp.add_register(b);
-                        temp.add_immediate(offset_value);
-                        temp
-                    }))
-                }
-                None => {
-                    let (rest, test) = opt(next_token)(rest)?;
-                    match test {
-                        Some(_) => {
-                            trace!("skipped ahead: <{:?}...>", rest.chars().take(20).collect::<String>());
-                            let (rest, imm) = opt(immediate)(rest)?;
-                            let (rest, _) = next_instruction(rest)?;
-                            match imm {
-                                Some(o) => {
-                                    Ok((rest, {
-                                        trace!("Found instruction: {} {}, {}, {}", opcode, a, b, o);
-                                        let mut temp = Instruction::new(opcode);
-                                        temp.add_register(a);
-                                        temp.add_register(b);
-                                        temp.add_immediate(o);
-                                        temp
-                                    }))
-                                }
-                                None => {
-                                    Ok((rest, {
-                                        trace!("Found instruction: {} {}, {}", opcode, a, b);
-                                        let mut temp = Instruction::new(opcode);
-                                        temp.add_register(a);
-                                        temp.add_register(b);
-                                        temp
-                                    }))
-                                }
-                            }
-                        }
-                        None => {
-                            Ok((rest, {
-                                trace!("Found instruction: {} {}, {}", opcode, a, b);
-                                let mut temp = Instruction::new(opcode);
-                                temp.add_register(a);
-                                temp.add_register(b);
-                                temp
-                            }))
-                        }
-                    }
-                }
-            }
-        }
+        Opcode::NOP | Opcode::HLT | Opcode::RET => no_operands(rest, opcode),
+        Opcode::ADD | Opcode::SUB | Opcode::NOR | Opcode::AND | Opcode::XOR => three_operands(rest, opcode),
+        Opcode::RSH | Opcode::CMP | Opcode::MOV | Opcode::LSH | Opcode::NOT | Opcode::NEG => two_operands(rest, opcode),
+        Opcode::INC | Opcode::DEC => one_operand(rest, opcode),
+        Opcode::LDI | Opcode::ADI => immediate_instructions(rest, opcode),
+        Opcode::JMP | Opcode::CAL => address_instructions(rest, opcode),
+        Opcode::BRH => branch_instruction(rest, opcode),
+        Opcode::LOD | Opcode::STR => load_and_store(rest, opcode),
         _ => {
             error!("Error: Invalid opcode (How the fuck?)");
             context("Instruction (Invalid Opcode)", fail)(rest)
@@ -255,25 +288,25 @@ pub fn parse_instruction(input: &str) -> IResult<&str, Instruction, VerboseError
     }
 }
 
-pub fn parse_labels(input: &str) -> IResult<&str, Instruction, VerboseError<&str>> {
-    trace!("parse labels: <{:?}>", input.chars().take(20).collect::<String>());
-    let (rest, label) = label(input)?;
+pub fn parse_labels(input: &str) -> Res<&str, Instruction> {
+    //trace!("parse labels: <{:?}>", input.chars().take(20).collect::<String>());
+    let (rest, label) = label_define(input)?;
     Ok((rest, {
         trace!("Found label: {}", label);
-        let mut temp = Instruction::new(_Label);
-        temp.add_label(label.to_string());
+        let mut temp = Instruction::new(Opcode::_Label);
+        temp.add_label_name(label.to_string());
         temp
     }))
 }
 
-pub fn parse_definitions(input: &str) -> IResult<&str, Instruction, VerboseError<&str>> {
-    trace!("parse definitions: <{:?}>", input.chars().take(20).collect::<String>());
+pub fn parse_definitions(input: &str) -> Res<&str, Instruction> {
+    //trace!("parse definitions: <{:?}>", input.chars().take(20).collect::<String>());
     let (rest, define) = opt(define)(input)?;
     match define {
         Some(d) => {
             Ok((rest, {
                 trace!("Found definition: {}", d);
-                let mut temp = Instruction::new(_Definition);
+                let mut temp = Instruction::new(Opcode::_Definition);
                 temp.add_definition(d);
                 temp
             }))
@@ -285,16 +318,19 @@ pub fn parse_definitions(input: &str) -> IResult<&str, Instruction, VerboseError
 }
 
 pub fn operand(input: &str) -> Res<&str, Operand> {
+    use Operand as O;
+    type Verbose = VerboseError<&'static str>;
     trace!("operand current input: <{:?}>", input.chars().take(20).collect::<String>());
     let (rest, operand) = alt((
-        map_res(register, |r| Ok::<Operand, VerboseError<&str>>(Register(r))),
-        map_res(condition, |c| Ok::<Operand, VerboseError<&str>>(Condition(c))),
-        map_res(immediate, |i| Ok::<Operand, VerboseError<&str>>(Operand::Immediate(i))),
-        map_res(offset, |o| Ok::<Operand, VerboseError<&str>>(Offset(o))),
-        map_res(definition, |d| Ok::<Operand, VerboseError<&str>>(Definition(d))),
-        map_res(port, |p| Ok::<Operand, VerboseError<&str>>(Port(p))),
-        map_res(address, |a| Ok::<Operand, VerboseError<&str>>(Address(a))),
-        map_res(character, |c| Ok::<Operand, VerboseError<&str>>(Character(c)))
+        map_res(register, |r| Ok::<O, Verbose>(O::Register(r))),
+        map_res(condition, |c| Ok::<O, Verbose>(O::Condition(c))),
+        map_res(offset, |o| Ok::<O, Verbose>(O::Offset(o))), // Parse a 4-bit number first
+        map_res(immediate, |i| Ok::<O, Verbose>(O::Immediate(i))), // then 8-bit number
+        map_res(label_usage, |o| Ok::<O, Verbose>(O::Label(o))),
+        map_res(definition, |d| Ok::<O, Verbose>(O::Definition(d))),
+        map_res(port, |p| Ok::<O, Verbose>(O::Port(p))),
+        map_res(address, |a| Ok::<O, Verbose>(O::Address(a))),
+        map_res(character, |c| Ok::<O, Verbose>(O::Character(c)))
     ))(input)?;
     Ok((rest, operand))
 }

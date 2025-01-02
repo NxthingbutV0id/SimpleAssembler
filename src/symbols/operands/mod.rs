@@ -1,17 +1,19 @@
 pub mod immediate;
 pub mod register;
 pub mod address;
-pub mod offset;
+pub mod label;
 pub mod definition;
 pub mod port;
 pub mod condition;
+pub mod offset;
 
 use std::fmt::Display;
 use crate::symbols::operands::address::Address;
 use crate::symbols::operands::condition::Condition;
 use crate::symbols::operands::definition::Definition;
 use crate::symbols::operands::immediate::Immediate;
-use crate::symbols::operands::offset::Offset;
+use crate::symbols::operands::label::Label;
+use crate::symbols::operands::offset::Nybble;
 use crate::symbols::operands::port::Port;
 use crate::symbols::operands::register::Register;
 
@@ -21,11 +23,12 @@ pub enum Operand {
     Immediate(Immediate),
     Condition(Condition),
     Address(Address),
-    Offset(Offset),
-    Label(String),
+    Label(Label),
+    Name(String),
     Definition(Definition),
     Port(Port),
-    Character(char)
+    Character(char),
+    Offset(Nybble)
 }
 
 impl Display for Operand {
@@ -35,11 +38,12 @@ impl Display for Operand {
             Operand::Immediate(i) => write!(f, "{}", *i),
             Operand::Condition(cond) => write!(f, "{}", *cond),
             Operand::Address(addr) => write!(f, "{}", *addr),
-            Operand::Offset(offset) => write!(f, "{}", offset),
             Operand::Label(label) => write!(f, "{}", label),
+            Operand::Name(name) => write!(f, "{}", name),
             Operand::Definition(def) => write!(f, "{}", def),
             Operand::Port(port) => write!(f, "{}", port),
-            Operand::Character(c) => write!(f, "'{}' (0x{:02X})", c, *c as u8)
+            Operand::Character(c) => write!(f, "'{}' (0x{:02X})", c, *c as u8),
+            Operand::Offset(off) => write!(f, "{}", off)
         }
     }
 }
@@ -68,9 +72,9 @@ impl From<Condition> for Operand {
     }
 }
 
-impl From<Offset> for Operand {
-    fn from(offset: Offset) -> Self {
-        Operand::Offset(offset)
+impl From<Label> for Operand {
+    fn from(offset: Label) -> Self {
+        Operand::Label(offset)
     }
 }
 
@@ -94,6 +98,12 @@ impl From<char> for Operand {
 
 impl From<&str> for Operand {
     fn from(label: &str) -> Self {
-        Operand::Label(label.to_string())
+        Operand::Name(label.to_string())
+    }
+}
+
+impl From<Nybble> for Operand {
+    fn from(n: Nybble) -> Self {
+        Operand::Offset(n)
     }
 }
