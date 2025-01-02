@@ -1,10 +1,9 @@
 use std::fmt::Display;
-use crate::symbols::operands::immediate::Immediate;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Definition {
     pub name: String,
-    pub value: Option<Immediate>
+    pub value: Option<i16>
 }
 
 impl Definition {

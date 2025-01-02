@@ -74,8 +74,8 @@ pub fn skip(input: &str) -> Res<&str, &str> {
 pub fn identifier(input: &str) -> Res<&str, &str> {
     recognize(
         pair(
-            alt((alpha1, tag("_"))),
-            many0_count(alt((alphanumeric1, tag("_"))))
+            alt((alpha1, tag("_"), tag("~"))),
+            many0_count(alt((alphanumeric1, tag("_"), tag("|"), tag("&"), tag("^"))))
         )
     )(input)
 }

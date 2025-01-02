@@ -92,6 +92,8 @@ fn cli_with_print() { // TODO: This test fails as well as all the others
         .arg("--")
         .arg("-i")
         .arg(r".\test_data\print\tetris.asm")
+        .arg("-o")
+        .arg(r".\test_data\print\tetris.bin")
         .arg("-v")
         .arg("-x")
         .arg("-d")
@@ -188,10 +190,11 @@ fn game_of_life() {
         .arg("-o")
         .arg(r".\test_data\game_of_life\gol.bin")
         .arg("-d")
+        .arg("-v")
         .output()
         .expect("Failed to execute command");
 
-    check_output(&output); // Fails because of 
+    check_output(&output);
 }
 
 #[test]
@@ -219,6 +222,21 @@ fn minesweeper() {
         .arg(r".\test_data\minesweeper\minesweeper.asm")
         .arg("-o")
         .arg(r".\test_data\minesweeper\minesweeper.bin")
+        .output()
+        .expect("Failed to execute command");
+
+    check_output(&output);
+}
+
+#[test]
+fn ai_generated() {
+    let output = Command::new("cargo")
+        .arg("run")
+        .arg("--")
+        .arg("-i")
+        .arg(r".\test_data\ai_generated\test.asm")
+        .arg("-o")
+        .arg(r".\test_data\ai_generated\test.bin")
         .output()
         .expect("Failed to execute command");
 

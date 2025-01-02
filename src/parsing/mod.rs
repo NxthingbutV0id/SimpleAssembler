@@ -1,5 +1,6 @@
-use std::fs;
-use std::path::Path;
+use std::fs::File;
+use std::io::Read;
+use std::path::PathBuf;
 use nom::error::convert_error;
 use nom::Finish;
 use crate::assembler::error::ParsingError;
@@ -11,7 +12,6 @@ pub(crate) mod basic;
 pub(crate) mod helper;
 mod complex;
 mod parser;
-mod token;
 
 const KEYWORDS: [&str; 76] = [
     "define",
@@ -40,29 +40,23 @@ const KEYWORDS: [&str; 76] = [
     "rng", "controller_input"
 ];
 
-pub fn parse_file(file: &str) -> Result<Vec<Instruction>, ParsingError> {
-    info!("Parsing {}...", file);
-    let path = Path::new(file);
-    if !path.exists() {
-        return Err(ParsingError::FileNotFound(file.to_string()));
-    }
-
-    if !path.is_file() {
-        return Err(ParsingError::InvalidFile(file.to_string()));
-    }
+pub fn parse_file(path: PathBuf) -> Result<Vec<Instruction>, ParsingError> {
+    info!("Parsing {}...", path.display());
 
     if path.extension().unwrap() != "asm" &&
         path.extension().unwrap() != "as" &&
         path.extension().unwrap() != "s" {
-        return Err(ParsingError::InvalidExtension(file.to_string()));
+        return Err(ParsingError::InvalidExtension(path.display().to_string()));
     }
 
 
-    let input = fs::read_to_string(path);
-    match input {
-        Ok(input) => {
+    match File::open(path.clone()) {
+        Ok(mut file) => {
+            let mut input = String::new();
+            file.read_to_string(&mut input)?;
+            
             if input.is_empty() {
-                warn!("File is empty: {}", file);
+                warn!("File is empty: {}", path.display());
                 return Ok(Vec::new());
             }
 
@@ -71,7 +65,7 @@ pub fn parse_file(file: &str) -> Result<Vec<Instruction>, ParsingError> {
                 Ok((_, program)) => {
                     trace!("Parsed {} instructions", program.len());
                     if program.is_empty() {
-                        warn!("No instructions found in file: {}\nReturning an empty list", file);
+                        warn!("No instructions found in file: {}\nReturning an empty list", path.display());
                         return Ok(Vec::new());
                     }
 
@@ -80,17 +74,17 @@ pub fn parse_file(file: &str) -> Result<Vec<Instruction>, ParsingError> {
                             return Ok(program);
                         }
                     }
-                    Err(ParsingError::NoInstructions(file.to_string()))
+                    Err(ParsingError::NoInstructions(path.display().to_string()))
                 },
                 Err(e) => {
                     Err(ParsingError::FailedToParse { 
-                        file: file.to_string(), 
+                        file: path.display().to_string(), 
                         reason: convert_error(input.as_str(), e) })
                 }
             }
         },
         Err(e) => {
-            error!("Failed to read file: {}", file);
+            error!("Failed to read file: {}", path.display());
             Err(ParsingError::from(e))
         }
     }

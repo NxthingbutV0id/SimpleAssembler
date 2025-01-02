@@ -7,7 +7,7 @@ use nom::{
     combinator::{opt, fail, recognize},
     sequence::{ delimited, pair },
 };
-use nom::combinator::eof;
+use nom::combinator::{cut, eof};
 use crate::parsing::{
     KEYWORDS,
     helper::*
@@ -56,16 +56,23 @@ pub fn port(input: &str) -> Res<&str, Port> {
 }
 
 pub fn define(input: &str) -> Res<&str, Definition> {
-    let (rest, _declaration) = tag("define")(input)?;
-    let (rest, _) = space1(rest)?;
-    let (rest, name) = identifier(rest)?;
+    let (rest, _declaration) = tag_no_case("define")(input)?;
+    let (rest, _) = cut(space1)(rest)?;
+    let (rest, name) = cut(identifier)(rest)?;
     
     if KEYWORDS.contains(&name.to_lowercase().as_str()) {
-        return context("Definition (Invalid name)", fail)(input);
+        trace!("Definition name is a keyword, Invalid");
+        return cut(context("Definition (Invalid name)", fail))(input);
     }
     
-    let (rest, _) = space1(rest)?;
-    let (rest, value) = immediate(rest)?;
+    let (rest, _) = cut(space1)(rest)?;
+    trace!("Skipped whitespace after definition name");
+    let (rest, signed) = opt(one_of("+-"))(rest)?;
+    let negative: bool = signed.unwrap_or('+') == '-';
+    let (rest, imm) = cut(number::<i16>)(rest)?;
+    let value = if negative {-imm} else {imm};
+    
+    trace!("Found definition value: {}", value);
     let mut def = Definition::new(name);
     def.value = Some(value);
     Ok((rest, def))
@@ -84,13 +91,13 @@ pub fn condition(input: &str) -> Res<&str, Condition> {
     match Condition::from_str(cond) {
         Ok(c) => Ok((rest, c)),
         Err(_) => {
-            context("Condition (Invalid)", fail)(input)
+            cut(context("Condition (Invalid)", fail))(input)
         }
     }
 }
 
 pub fn label_usage(input: &str) -> Res<&str, Label> {
-    let (rest, _) = context("Offset", tag("."))(input)?;
+    let (rest, _) = context("Label Usage", tag("."))(input)?;
     let (rest, name) = identifier(rest)?;
     Ok((rest, Label::new(name.to_string())))
 }
@@ -136,22 +143,22 @@ pub fn immediate(input: &str) -> Res<&str, Immediate> {
 }
 
 pub fn register(input: &str) -> Res<&str, Register> {
-    let (rest, reg) = context(
-        "Register", 
+    let (rest, reg) = cut(context(
+        "Register (Expected register here)", 
         recognize(
             pair(
                 tag_no_case("r"),
                 digit1
             )
         )
-    )(input)?;
+    ))(input)?;
     
     let reg = Register::from_str(reg);
     
     match reg {
         Ok(r) => Ok((rest, r)),
         Err(_) => {
-            context("Register (Invalid)", fail)(rest)
+            cut(context("Register (Invalid)", fail))(rest)
         }
     }
 }
@@ -166,7 +173,7 @@ pub fn opcode(input: &str) -> Res<&str, Opcode> {
             Ok((rest, o))
         },
         Err(_) => {
-            context("Opcode (Invalid)", fail)(input)
+            cut(context("Opcode (Invalid)", fail))(input)
         }
     }
 }

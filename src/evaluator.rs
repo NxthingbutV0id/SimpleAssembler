@@ -2,10 +2,9 @@ use std::collections::HashMap;
 use crate::assembler::error::EvaluatorError;
 use crate::symbols::instruction::Instruction;
 use crate::symbols::opcodes::Opcode;
-use crate::symbols::operands::immediate::Immediate;
 use crate::symbols::operands::Operand;
 
-type Definitions = HashMap<String, Immediate>;
+type Definitions = HashMap<String, i16>;
 
 pub fn evaluate_program(program: &mut [Instruction]) -> Result<(), EvaluatorError>{
     info!("Evaluating program...");
@@ -39,7 +38,7 @@ fn find_definitions(program: &[Instruction]) -> Result<Definitions, EvaluatorErr
     Ok(defined)
 }
 
-fn evaluate_instruction(instruction: &mut Instruction, defined: &HashMap<String, Immediate>) -> Result<(), EvaluatorError> {
+fn evaluate_instruction(instruction: &mut Instruction, defined: &Definitions) -> Result<(), EvaluatorError> {
     for i in 0..instruction.operands.len() {
         let operand = &mut instruction.operands[i];
         if let Operand::Label(offset) = operand {
@@ -58,13 +57,13 @@ fn evaluate_instruction(instruction: &mut Instruction, defined: &HashMap<String,
             offset.offset = Some(start);
         } else if Opcode::_Definition != instruction.opcode {
             if let Operand::Definition(def) = operand {
-                let imm = defined.get(&def.name);
-                if imm.is_none() {
-                    return Err(EvaluatorError::UnknownDefinition(def.name.clone()));
+                match defined.get(&def.name) {
+                    Some(i) => {
+                        trace!("Replacing {} with {}", def.name, i);
+                        def.value = Some(*i);
+                    },
+                    None => return Err(EvaluatorError::UnknownDefinition(def.name.clone()))
                 }
-                let imm = imm.unwrap();
-                trace!("Replacing {} with {}", def.name, imm);
-                *operand = Operand::Immediate(*imm);
             }
         }
     }

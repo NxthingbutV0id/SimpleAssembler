@@ -1,6 +1,6 @@
 use nom::branch::alt;
 use nom::bytes::complete::tag;
-use nom::combinator::{fail, map_res, opt, peek};
+use nom::combinator::{cut, fail, map_res, opt, peek};
 use nom::error::{context, VerboseError};
 use crate::parsing::basic::{offset, address, character, condition, define, definition, immediate, label_define, label_usage, opcode, port, register};
 use crate::parsing::helper::{leading_ws, next_instruction, next_token, Res};
@@ -66,7 +66,7 @@ fn immediate_instructions(input: &str, opcode: Opcode) -> Res<&str, Instruction>
     let (rest, _) = next_token(input)?;
     let (rest, a) = register(rest)?;
     let (rest, _) = next_token(rest)?;
-    let (rest, b) = peek(operand)(rest)?;
+    let (rest, b) = peek(operand_imm)(rest)?;
     match b {
         Operand::Immediate(_) => {
             let (rest, imm) = immediate(rest)?;
@@ -122,16 +122,16 @@ fn immediate_instructions(input: &str, opcode: Opcode) -> Res<&str, Instruction>
 fn address_instructions(input: &str, opcode: Opcode) -> Res<&str, Instruction> {
     let (rest, _) = next_token(input)?;
     trace!("skipped ahead: <{:?}...>", rest.chars().take(20).collect::<String>());
-    let (rest, a) = operand(rest)?;
+    let (rest, a) = operand_imm(rest)?;
     trace!("parsed operand: <{:?}...>", rest.chars().take(20).collect::<String>());
     let (rest, _) = next_instruction(rest)?;
     trace!("skipped to next instruction: <{:?}...>", rest.chars().take(20).collect::<String>());
     match a {
-        Operand::Label(offset) => {
+        Operand::Label(label) => {
             Ok((rest, {
-                trace!("Found instruction: {} {}", opcode, offset);
+                trace!("Found instruction: {} {}", opcode, label);
                 let mut temp = Instruction::new(opcode);
-                temp.add_label(offset);
+                temp.add_label(label);
                 temp
             }))
         }
@@ -154,15 +154,15 @@ fn branch_instruction(input: &str, opcode: Opcode) -> Res<&str, Instruction> {
     let (rest, _) = next_token(input)?;
     let (rest, a) = condition(rest)?;
     let (rest, _) = next_token(rest)?;
-    let (rest, b) = operand(rest)?;
+    let (rest, b) = operand_imm(rest)?;
     let (rest, _) = next_instruction(rest)?;
     match b {
-        Operand::Label(offset) => {
+        Operand::Label(label) => {
             Ok((rest, {
-                trace!("Found instruction: {} {}, {}", opcode, a, offset);
+                trace!("Found instruction: {} {}, {}", opcode, a, label);
                 let mut temp = Instruction::new(opcode);
                 temp.add_condition(a);
-                temp.add_label(offset);
+                temp.add_label(label);
                 temp
             }))
         }
@@ -185,7 +185,7 @@ fn branch_instruction(input: &str, opcode: Opcode) -> Res<&str, Instruction> {
 /// You put a comma, therefore, there must be a next value
 fn there_must_be_a_next_value(input: &str, opcode: Opcode, a: Register, b: Register) -> Res<&str, Instruction> {
     let (rest, _) = next_token(input)?;
-    let (rest, offset_value) = operand(rest)?;
+    let (rest, offset_value) = operand_off(rest)?;
     let (rest, _) = next_instruction(rest)?;
     there_is_a_next_value(rest, opcode, a, b, offset_value)
 }
@@ -196,7 +196,7 @@ fn there_could_be_a_next_value(input: &str, opcode: Opcode, a: Register, b: Regi
     match test {
         Some(_) => {
             trace!("skipped ahead: <{:?}...>", rest.chars().take(20).collect::<String>());
-            let (rest, oper) = opt(operand)(rest)?;
+            let (rest, oper) = opt(operand_off)(rest)?;
             let (rest, _) = next_instruction(rest)?;
             match oper {
                 Some(o) => there_is_a_next_value(rest, opcode, a, b, o),
@@ -283,13 +283,13 @@ pub fn parse_instruction(input: &str) -> Res<&str, Instruction> {
         Opcode::LOD | Opcode::STR => load_and_store(rest, opcode),
         _ => {
             error!("Error: Invalid opcode (How the fuck?)");
-            context("Instruction (Invalid Opcode)", fail)(rest)
+            cut(context("Instruction (Invalid Opcode)", fail))(rest)
         }
     }
 }
 
 pub fn parse_labels(input: &str) -> Res<&str, Instruction> {
-    //trace!("parse labels: <{:?}>", input.chars().take(20).collect::<String>());
+    trace!("attempting to parse label: <{:?}>", input.chars().take(20).collect::<String>());
     let (rest, label) = label_define(input)?;
     Ok((rest, {
         trace!("Found label: {}", label);
@@ -300,7 +300,7 @@ pub fn parse_labels(input: &str) -> Res<&str, Instruction> {
 }
 
 pub fn parse_definitions(input: &str) -> Res<&str, Instruction> {
-    //trace!("parse definitions: <{:?}>", input.chars().take(20).collect::<String>());
+    trace!("attempting to parse definitions: <{:?}>", input.chars().take(40).collect::<String>());
     let (rest, define) = opt(define)(input)?;
     match define {
         Some(d) => {
@@ -317,15 +317,12 @@ pub fn parse_definitions(input: &str) -> Res<&str, Instruction> {
     }
 }
 
-pub fn operand(input: &str) -> Res<&str, Operand> {
+pub fn operand_off(input: &str) -> Res<&str, Operand> {
     use Operand as O;
     type Verbose = VerboseError<&'static str>;
-    trace!("operand current input: <{:?}>", input.chars().take(20).collect::<String>());
+    trace!("operand (offset) current input: <{:?}>", input.chars().take(20).collect::<String>());
     let (rest, operand) = alt((
-        map_res(register, |r| Ok::<O, Verbose>(O::Register(r))),
-        map_res(condition, |c| Ok::<O, Verbose>(O::Condition(c))),
-        map_res(offset, |o| Ok::<O, Verbose>(O::Offset(o))), // Parse a 4-bit number first
-        map_res(immediate, |i| Ok::<O, Verbose>(O::Immediate(i))), // then 8-bit number
+        map_res(offset, |o| Ok::<O, Verbose>(O::Offset(o))),
         map_res(label_usage, |o| Ok::<O, Verbose>(O::Label(o))),
         map_res(definition, |d| Ok::<O, Verbose>(O::Definition(d))),
         map_res(port, |p| Ok::<O, Verbose>(O::Port(p))),
@@ -334,3 +331,19 @@ pub fn operand(input: &str) -> Res<&str, Operand> {
     ))(input)?;
     Ok((rest, operand))
 }
+
+pub fn operand_imm(input: &str) -> Res<&str, Operand> {
+    use Operand as O;
+    type Verbose = VerboseError<&'static str>;
+    trace!("operand (imm) current input: <{:?}>", input.chars().take(20).collect::<String>());
+    let (rest, operand) = cut(alt((
+        map_res(immediate, |i| Ok::<O, Verbose>(O::Immediate(i))),
+        map_res(label_usage, |o| Ok::<O, Verbose>(O::Label(o))),
+        map_res(definition, |d| Ok::<O, Verbose>(O::Definition(d))),
+        map_res(port, |p| Ok::<O, Verbose>(O::Port(p))),
+        map_res(address, |a| Ok::<O, Verbose>(O::Address(a))),
+        map_res(character, |c| Ok::<O, Verbose>(O::Character(c)))
+    )))(input)?;
+    Ok((rest, operand))
+}
+

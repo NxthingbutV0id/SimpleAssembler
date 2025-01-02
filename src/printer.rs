@@ -1,25 +1,24 @@
 use crate::symbols::{opcodes::Opcode, instruction::Instruction};
 use crate::symbols::operands::Operand;
 
-pub struct AssemblyPrinter {
-    program: Vec<Instruction>,
+pub struct AssemblyPrinter<'a> {
+    program: &'a [Instruction],
     output: Option<String>
 }
 
-impl AssemblyPrinter {
-    pub fn new(program: &Vec<Instruction>) -> AssemblyPrinter {
+impl<'a> AssemblyPrinter<'a> {
+    pub fn new(program: &[Instruction]) -> AssemblyPrinter {
         AssemblyPrinter {
-            program: program.clone(),
+            program,
             output: None
         }
     }
 
     pub fn print(&mut self) -> String {
         self.output = Some("".to_string());
-        let program = self.program.clone();
         self.emit("\naddr |     encoding     |       instructions\n");
         self.emit("---- | ---------------- | -----------------------\n");
-        for instruction in program {
+        for instruction in self.program {
             self.print_instruction(&instruction);
         }
         let s = self.output.clone().unwrap();

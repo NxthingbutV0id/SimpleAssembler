@@ -1,6 +1,7 @@
 use crate::assembler::error::EncodingError;
 use crate::symbols::{opcodes::Opcode, opcodes::Opcode::*, instruction::Instruction};
 use crate::symbols::operands::immediate::Immediate;
+use crate::symbols::operands::offset::Nybble;
 use crate::symbols::operands::Operand;
 use crate::symbols::operands::register::Register::R0;
 
@@ -20,7 +21,10 @@ impl InstructionEncoder {
     pub fn encode_program(&mut self, program: &mut Vec<Instruction>) -> Result<(), EncodingError> {
         for i in 0..program.len() {
             self.encoding = Some(0);
-            trace!("Encoding instruction: {}", program[i]);
+            match program[i].opcode {
+                _Definition | _Label => {},
+                _ => trace!("Encoding instruction: {}", program[i])
+            }
             self.encode_instruction(&mut program[i])?;
             program[i].encoding = self.encoding;
         }
@@ -205,7 +209,7 @@ impl InstructionEncoder {
                         return Err(EncodingError::UnboundDefinition(definition.name.clone()));
                     }
                 };
-                self.encode_bits(0, 8, imm.value() as u16)?;
+                self.encode_bits(0, 8, imm as u16)?;
                 Ok(())
             }
             Operand::Port(port) => {
@@ -267,7 +271,7 @@ impl InstructionEncoder {
 
                 self.encode_bits(0, 10, a.value())?;
                 Ok(())
-            }
+            },
             _ => {
                 Err(EncodingError::InvalidOperand {
                     expected: "address".to_string(),
@@ -282,6 +286,23 @@ impl InstructionEncoder {
             Some(Operand::Offset(value)) => {
                 self.encode_bits(0, 4, value.value() as u16)?;
                 Ok(())
+            },
+            Some(Operand::Definition(def)) => {
+                let imm = match def.value {
+                    Some(i) => i,
+                    None => {
+                        return Err(EncodingError::UnboundDefinition(def.name.clone()));
+                    }
+                };
+                match Nybble::new(imm as i8) {
+                    Some(i) => {
+                        self.encode_bits(0, 4, i.value() as u16)?;
+                        Ok(())
+                    },
+                    None => {
+                        Err(EncodingError::ValueOutOfBounds(imm as u16))
+                    }
+                }
             },
             Some(_) => {
                 Err(EncodingError::InvalidOperand{

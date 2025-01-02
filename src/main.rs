@@ -14,8 +14,9 @@ mod evaluator;
 mod parsing;
 mod assembler;
 
+use std::path::PathBuf;
 use clap::Parser;
-use crate::assembler::{Assembler, AssemblerStatus};
+use crate::assembler::AssemblerStatus;
 use crate::cli::CLI;
 
 extern crate pretty_env_logger;
@@ -25,39 +26,35 @@ extern crate pretty_env_logger;
 fn main() -> AssemblerStatus {
     let args = CLI::parse();
 
-    if args.debug {
-        std::env::set_var("RUST_LOG", "trace");
-    } else {
-        std::env::set_var("RUST_LOG", "info");
-    }
+    std::env::set_var("RUST_LOG", {
+        match (args.verbose, args.debug) { 
+            (true, true) => "trace",
+            (false, true) => "debug",
+            (true, false) => "info",
+            (false, false) => "warn"
+        }
+    });
 
     pretty_env_logger::init();
+    
+    let output_path = args.output.unwrap_or_else(|| PathBuf::from("a.bin"));
 
-    let mut assembler = Assembler::new(args.input_files);
-
-    let status = assembler.assemble();
-    if status.is_err() {
+    let status = assembler::assemble(&args.input_files, output_path, args.size);
+    let program = if status.is_err() {
         error!("Failed to assemble program: {}", status.err().unwrap());
         return AssemblerStatus::Failure;
+    } else {
+        status.unwrap()
+    };
+
+    if args.print {
+        assembler::print_assembly(&program);
     }
 
-    if args.print_assembly {
-        assembler.print_assembly();
-    }
-
-    if args.output.is_some() {
-        let test = assembler.write_binary(args.size, args.output.clone().unwrap());
-        if test.is_err() {
-            error!("Failed to write binary: {}", test.err().unwrap());
-            return AssemblerStatus::Failure;
-        }
-    }
-
-    if args.print_binary || args.output.is_none() {
-        let test = assembler.hex_dump();
+    if args.hex_dump {
+        let test = assembler::hex_dump(&program);
         if test.is_err() {
             error!("Failed to print hex dump: {}", test.err().unwrap());
-            return AssemblerStatus::Failure;
         }
     }
 

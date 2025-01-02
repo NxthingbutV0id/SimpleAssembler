@@ -4,10 +4,6 @@ use crate::symbols::operands::Operand;
 
 #[derive(Error, Debug)]
 pub enum ParsingError {
-    #[error("FileNotFound: {0}")]
-    FileNotFound(String),
-    #[error("InvalidFile: {0}")]
-    InvalidFile(String),
     #[error("Invalid Extension: {0}")]
     InvalidExtension(String),
     #[error("No instructions found in file: {0}")]
@@ -52,7 +48,7 @@ pub enum EvaluatorError {
     #[error("unknown offset: Offset {0} was not found")]
     UnknownOffset(String),
     #[error("invalid offset: Offset {0} does not have an address")]
-    InvalidOffset(String)
+    InvalidOffset(String),
 }
 
 #[derive(Error, Debug)]
