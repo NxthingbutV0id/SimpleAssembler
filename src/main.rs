@@ -1,62 +1,32 @@
-/*
-#![deny(clippy::unwrap_used)]
-#![deny(clippy::expect_used)]
-#![deny(clippy::panic)]
-#![deny(clippy::unused_must_use)]
-*/
-mod cli;
-mod printer;
-mod layout;
-mod encoder;
-mod symbols;
-mod resolver;
-mod evaluator;
-mod parsing;
-mod assembler;
-
 use std::path::PathBuf;
-use clap::Parser;
-use crate::assembler::AssemblerStatus;
-use crate::cli::CLI;
+use simple_assembler::Assembler;
 
-extern crate pretty_env_logger;
-#[macro_use] extern crate log;
+fn main() {
+    let input_path = PathBuf::from("./examples/tetris.asm");
+    let output_path = PathBuf::from("./examples/tetris.bin");
+    let assembler = Assembler::new();
 
-// NOTE: This whole thing is based off of mattbatwing's minecraft CPU
-fn main() -> AssemblerStatus {
-    let args = CLI::parse();
+    match assembler.assemble(&[input_path], output_path) {
+        Ok((prog, bin)) => {
+            println!("Program assembled successfully");
 
-    std::env::set_var("RUST_LOG", {
-        match (args.verbose, args.debug) { 
-            (true, true) => "trace",
-            (false, true) => "debug",
-            (true, false) => "info",
-            (false, false) => "warn"
-        }
-    });
-
-    pretty_env_logger::init();
-    
-    let output_path = args.output.unwrap_or_else(|| PathBuf::from("a.bin"));
-
-    let status = assembler::assemble(&args.input_files, output_path, args.size);
-    let program = if status.is_err() {
-        error!("Failed to assemble program: {}", status.err().unwrap());
-        return AssemblerStatus::Failure;
-    } else {
-        status.unwrap()
-    };
-
-    if args.print {
-        assembler::print_assembly(&program);
-    }
-
-    if args.hex_dump {
-        let test = assembler::hex_dump(&program);
-        if test.is_err() {
-            error!("Failed to print hex dump: {}", test.err().unwrap());
+            assembler.print_program(&prog);
+            assembler.hex_dump(&bin);
+        },
+        Err(e) => {
+            eprintln!("Failed to assemble program: {}", e);
         }
     }
-
-    AssemblerStatus::Success
 }
+
+/*
+use std::io::{self, Write};
+use std::fmt::Display;
+fn input(message: &'_ impl Display) -> Result<String, io::Error> {
+    print!("{}", message);
+    io::stdout().flush()?;
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    Ok(input.trim().to_string())
+}
+ */

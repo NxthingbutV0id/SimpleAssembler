@@ -1,5 +1,6 @@
-use crate::symbols::{opcodes::Opcode, instruction::Instruction};
-use crate::symbols::operands::address::Address;
+use crate::architecture::batpu2::instruction::Instruction;
+use crate::architecture::batpu2::opcode::Opcode;
+use crate::architecture::batpu2::operand::immediate::Address;
 
 pub fn layout_program(program: &mut [Instruction]) {
     info!("Laying out program...");
@@ -7,16 +8,16 @@ pub fn layout_program(program: &mut [Instruction]) {
     for instruction in program {
         match Address::new(current_address) {
             Some(addr) => {
-                match instruction.opcode { 
+                match instruction.opcode {
                     Opcode::_Label => {
-                        instruction.address = Some(addr);
+                        instruction.location = Some(addr);
                         continue;
                     },
                     Opcode::_Definition => {
                         continue;
                     },
                     _ => {
-                        instruction.address = Some(addr);
+                        instruction.location = Some(addr);
                         current_address += 2;
                     }
                 }
