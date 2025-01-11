@@ -40,41 +40,28 @@ pub fn parse(path: PathBuf) -> Result<Vec<Instruction>, ParseError> {
         return Err(ParseError::InvalidExtension(path.display().to_string()));
     }
 
-    match File::open(path.clone()) {
-        Ok(mut file) => {
-            let mut contents = String::new();
-            match file.read_to_string(&mut contents) {
-                Ok(b) => {
-                    trace!("Read {} bytes from file", b);
-                    match parse_program(&contents).finish() {
-                        Ok((_, program)) => {
-                            if program.is_empty() {
-                                warn!("No instructions found in file");
-                                return Ok(program);
-                            }
+    let mut file = File::open(path.clone())?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
+    match parse_program(&contents).finish() {
+        Ok((_, program)) => {
+            if program.is_empty() {
+                warn!("No instructions found in file");
+                return Ok(program);
+            }
 
-                            for instruction in program.iter() {
-                                if instruction.opcode !=  Opcode::_Label && instruction.opcode != Opcode::_Definition {
-                                    return Ok(program);
-                                }
-                            }
-                            Err(ParseError::NoInstructions(path.display().to_string()))
-                        },
-                        Err(e) => {
-                            Err(ParseError::FailedToParse {
-                                file: path.display().to_string(),
-                                reason: convert_error(contents.as_str(), e)
-                            })
-                        }
-                    }
-                },
-                Err(e) => {
-                    Err(ParseError::from(e))
+            for instruction in program.iter() {
+                if instruction.opcode !=  Opcode::_Label && instruction.opcode != Opcode::_Definition {
+                    return Ok(program);
                 }
             }
+            Err(ParseError::NoInstructions(path.display().to_string()))
         },
         Err(e) => {
-            Err(ParseError::from(e))
+            Err(ParseError::FailedToParse {
+                file: path.display().to_string(),
+                reason: convert_error(contents.as_str(), e)
+            })
         }
     }
 }
